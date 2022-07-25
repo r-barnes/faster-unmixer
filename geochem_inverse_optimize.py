@@ -160,9 +160,81 @@ def get_solution_dataframe(sample_network: nx.DiGraph, obs_data: pd.DataFrame) -
         print(f"WARNING: No flux.value for {sample_name}-{element}!")
       row[f"{element}_pred"] = flux.value / data.total_area if flux.value else None
     rows.append(row)
-
   return pd.DataFrame(rows)
 
+def get_upstream_dataframe(sample_network: nx.DiGraph) -> pd.DataFrame:
+    """Returns dataframe of predicted upstream source concentrations"""
+    rows = []
+    for sample_name, data in sample_network.nodes(data=True):
+        data = data['data']
+        row = {}
+        row["sample_name"] = sample_name
+        for element, concentration in data.my_values.items():
+            if not concentration.value:
+                print(f"WARNING: No concentration.value for {sample_name}-{element}!")
+            row[f"{element}_pred_upst"] = concentration.value if concentration.value else None
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+def visualise_downstream(solution_df,elem):
+    """Generates scatter plot between predicted downstream
+    concentration for given element against observed.
+    
+    solution_df: Panda's dataframe of observed and predicted  
+                 normalised concentrations for each element. 
+                 Generated using `get_solution_dataframe'
+    elem: String for element to visualise. """
+    obs=solution_df[elem+'_obs']
+    pred=solution_df[elem+'_pred']
+    plt.scatter(x=obs,y=pred)
+    plt.yscale('log')
+    plt.xscale('log')
+    plt.xlabel("Observed "+elem+" concentration mg/kg")
+    plt.ylabel("Predicted "+elem+" concentration mg/kg")
+    plt.plot([0,1e6],[0,1e6],alpha=0.5,color='grey')
+    plt.xlim((min(obs*0.9),max(obs*1.1)))
+    plt.ylim((min(pred*0.9),max(pred*1.1)))    
+    ax=plt.gca()
+    ax.set_aspect(1)
+    rms = np.sqrt(np.mean(np.log10(pred/obs)**2))
+    plt.title("RMS="+str(np.around(rms,3)))
+    
+def get_unique_upstream_areas(sample_network):
+    """Generates a dictionary which maps sample numbers onto 
+    the unique upstream area (as a boolean mask)
+    for the sample site."""
+    I = plt.imread('labels.tif')[:,:,0] # ,
+    areas = {}
+    counter=1
+    for node in sample_network.nodes:
+        areas[node] = (I==(counter))
+        counter+=1
+    return(areas)
+    
+def get_upstream_concentration_map(areas,upstream_dataframe,elem):
+    """Generates a two-dimensional map displaying the predicted upstream 
+    concentration for a given element for each unique upstream area.
+        areas: Dictionary mapping sample numbers onto a boolean mask 
+               (see `get_unique_upstream_areas`)
+        upstream_dataframe: Dataframe of predicted upstream areas
+               (see `get_upstream_dataframe`)
+        elem: String of element symbol"""
+    
+    out=np.zeros(areas[upstream_dataframe['sample_name'][0]].shape) # initialise output
+    for node in upstream_dataframe['sample_name']:
+        upstream_dataframe['sample_name']==node
+        out[areas[node]] = upstream_dataframe[elem+'_pred_upst'][upstream_dataframe['sample_name']==node]
+    return(out)
+    
+def visualise_upstream(upstream_map,elem,vmin=None,vmax=None):
+    """Generates a map of predicted upstream geochemistry
+    elem: String for element to be visualised.
+    upstream_map: Map of concentrations upstream. (see 
+    `get_upstream_concentration_map`). 
+    vmin,vmax: limits of colorbar"""
+    plt.imshow(np.log10(upstream_map),vmin=vmin,vmax=vmax)
+    cb=plt.colorbar()
+    cb.set_label("Predicted"+elem+"upstream, log10 mg/kg")    
 
 def main():
   sample_network, sample_adjacency = get_sample_graphs("data/")
