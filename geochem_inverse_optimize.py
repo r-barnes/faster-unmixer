@@ -216,11 +216,16 @@ def process_data(data_dir: str, data_filename: str, excluded_elements: Optional[
     except cp.error.SolverError as err:
       print(f"\033[91mSolver Error - skipping this element!\n{err}")
       continue
+        
+    obs,pred=[],[]
+    for sample in element_data.keys():
+        obs+=[element_data[sample]]
+        pred+=[predictions[sample]]
 
     if results is None:
       results = pd.DataFrame(element_data.keys())
-    results[element+"_obs"] = obs_data[element].tolist()
-    results[element+"_prd"] = predictions.values()
+    results[element+"_obs"] = obs
+    results[element+"_dwnst_prd"] = pred
 
   return results
 
