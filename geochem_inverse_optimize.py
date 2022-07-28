@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import pandas as pd
 import pyfastunmix
-
+import numpy as np
 
 NO_DOWNSTREAM: Final[int] = 0
 SAMPLE_CODE: Final[str] = "Sample.Code"
@@ -92,8 +92,9 @@ def get_primary_terms(sample_network: nx.DiGraph, obs_data: ElementData) -> List
 
     # Add the flux I generate to the total flux passing through me
     my_data.total_flux += my_data.my_flux
+    obs_mean = np.mean(list(obs_data.values()))
 
-    observed = obs_data[my_data.data.name]
+    observed = obs_data[my_data.data.name]/obs_mean # Normalise observation by mean
     normalised_concentration = my_data.total_flux/my_data.total_area
     primary_terms.append(cp_log_ratio_norm(normalised_concentration, observed))
 
@@ -139,7 +140,6 @@ def process_element(
 ) -> ElementData:
   # Make a deep copy to avoid over-writing the original data
   reset_sample_network(sample_network)
-
   primary_terms = get_primary_terms(sample_network=sample_network, obs_data=obs_data)
 
   regularizer_terms = get_regularizer_terms(sample_network=sample_network, adjacency_graph=sample_adjacency)
@@ -174,8 +174,12 @@ def process_element(
     status=problem.status
   ))
   print(f"Objective value = {objective_value}")
+  obs_mean = np.mean(list(obs_data.values()))
+  # Return outputs
+  downstream_preds = get_prediction_dictionary(sample_network=sample_network) 
+  downstream_preds.update((sample, value*obs_mean) for sample, value in downstream_preds.items())
 
-  return get_prediction_dictionary(sample_network=sample_network)
+  return downstream_preds
 
 
 def get_element_obs(element: str, obs_data: pd.DataFrame)->ElementData:
