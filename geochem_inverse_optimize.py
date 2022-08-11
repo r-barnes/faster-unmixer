@@ -147,8 +147,7 @@ def process_element(
     print("WARNING: No regularizer terms found!")
 
   # Build the objective and constraints
-  # TODO(alexlipp,r-barnes): Should this be a cp.norm(cp.vstack(primary_terms)) to get squaring or should the square happen in the log or should there be no square?
-  objective = cp.sum(primary_terms)  
+  objective = cp.norm(primary_terms)  
   if regularizer_terms:
     # TODO(alexlipp,r-barnes): Make sure that his uses the same summation strategy as the primary terms
     objective += regularizer_strength * cp.norm(cp.vstack(regularizer_terms)) 
@@ -193,7 +192,6 @@ def process_data(data_dir: str, data_filename: str, excluded_elements: Optional[
   sample_network, sample_adjacency = get_sample_graphs(data_dir)
 
   plot_network(sample_network)
-  # TODO(alexlipp): Normalise element by elemental mean.
   obs_data = pd.read_csv(data_filename, delimiter=" ") 
   obs_data = obs_data.drop(columns=excluded_elements)
 
@@ -228,8 +226,6 @@ def process_data(data_dir: str, data_filename: str, excluded_elements: Optional[
     results[element+"_dwnst_prd"] = pred
 
   return results
-
-# TODO(alexlipp): Generate normalise/renormalise data functions, that output list of means
 
 def main():
   results = process_data(
