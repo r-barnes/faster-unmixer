@@ -9,9 +9,9 @@ import cvxpy as cp
 import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
 import networkx as nx
+import numpy as np
 import pandas as pd
 import pyfastunmix
-import numpy as np
 
 NO_DOWNSTREAM: Final[int] = 0
 SAMPLE_CODE: Final[str] = "Sample.Code"
@@ -129,7 +129,7 @@ def get_prediction_dictionary(sample_network: nx.DiGraph) -> pd.DataFrame:
     data = data['data']
     predictions[sample_name] = data.total_flux.value / data.total_area
 
-  return predictions    
+  return predictions
 
 # TODO(rbarnes): Might need a per-element lambda value for the regularizer to find the elbow
 def process_element(
@@ -147,10 +147,10 @@ def process_element(
     print("WARNING: No regularizer terms found!")
 
   # Build the objective and constraints
-  objective = cp.norm(primary_terms)  
+  objective = cp.norm(cp.vstack(primary_terms))
   if regularizer_terms:
     # TODO(alexlipp,r-barnes): Make sure that his uses the same summation strategy as the primary terms
-    objective += regularizer_strength * cp.norm(cp.vstack(regularizer_terms)) 
+    objective += regularizer_strength * cp.norm(cp.vstack(regularizer_terms))
   constraints = []
 
   # Create and solve the problem
@@ -175,7 +175,7 @@ def process_element(
   print(f"Objective value = {objective_value}")
   obs_mean = np.mean(list(obs_data.values()))
   # Return outputs
-  downstream_preds = get_prediction_dictionary(sample_network=sample_network) 
+  downstream_preds = get_prediction_dictionary(sample_network=sample_network)
   downstream_preds.update((sample, value*obs_mean) for sample, value in downstream_preds.items())
 
   return downstream_preds
@@ -192,12 +192,12 @@ def process_data(data_dir: str, data_filename: str, excluded_elements: Optional[
   sample_network, sample_adjacency = get_sample_graphs(data_dir)
 
   plot_network(sample_network)
-  obs_data = pd.read_csv(data_filename, delimiter=" ") 
+  obs_data = pd.read_csv(data_filename, delimiter=" ")
   obs_data = obs_data.drop(columns=excluded_elements)
 
   results = None
   # TODO(r-barnes,alexlipp): Loop over all elements once we achieve acceptable results
-  for element in ELEMENT_LIST[0:20]: 
+  for element in ELEMENT_LIST[0:20]:
     if element not in obs_data.columns:
       continue
 
@@ -214,11 +214,9 @@ def process_data(data_dir: str, data_filename: str, excluded_elements: Optional[
     except cp.error.SolverError as err:
       print(f"\033[91mSolver Error - skipping this element!\n{err}")
       continue
-        
-    obs,pred=[],[]
-    for sample in element_data.keys():
-        obs+=[element_data[sample]]
-        pred+=[predictions[sample]]
+
+    obs = [element_data[sample] for sample in element_data.keys()]
+    pred = [predictions[sample] for sample in element_data.keys()]
 
     if results is None:
       results = pd.DataFrame(element_data.keys())
