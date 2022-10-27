@@ -27,7 +27,9 @@ problem = gio.SampleNetwork(sample_network=sample_network, sample_adjacency=samp
 element_data = gio.get_element_obs(
     element, obs_data
 )  # Return dictionary of {sample_name:concentration}
-element_pred_down = problem.solve(element_data, solver="ecos")  # Solve for downstream predictions
+element_pred_down = problem.solve(
+    element_data, solver="ecos", regularization_strength=1e-3
+)  # Solve for downstream predictions
 
 
 element_pred_upstream = gio.get_upstream_prediction_dictionary(

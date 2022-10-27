@@ -300,7 +300,7 @@ def process_data(
     obs_data = pd.read_csv(data_filename, delimiter=" ")
     obs_data = obs_data.drop(columns=excluded_elements)
 
-    problem = SampleNetwork(sample_network=sample_network)
+    problem = SampleNetwork(sample_network=sample_network, sample_adjacency=sample_adjacency)
 
     results = None
     # TODO(r-barnes,alexlipp): Loop over all elements once we achieve acceptable results
@@ -311,9 +311,8 @@ def process_data(
         print(f"\n\033[94mProcessing element '{element}'...\033[39m")
 
         element_data = get_element_obs(element=element, obs_data=obs_data)
-
         try:
-            predictions = problem.solve(element_data)
+            predictions = problem.solve(element_data, solver="ecos", regularization_strength=1e-3)
         except cp.error.SolverError as err:
             print(f"\033[91mSolver Error - skipping this element!\n{err}")
             continue
