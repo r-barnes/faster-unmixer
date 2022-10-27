@@ -76,8 +76,9 @@ def get_sample_graphs(data_dir: str) -> Tuple[nx.DiGraph, Any]:
 
 
 class SampleNetwork:
-    def __init__(self, sample_network: nx.DiGraph) -> None:
+    def __init__(self, sample_network: nx.DiGraph, sample_adjacency: nx.DiGraph) -> None:
         self.sample_network = sample_network
+        self.sample_adjacency = sample_adjacency
         self._site_to_parameter: Dict[str, cp.Parameter] = {}
         self._primary_terms = []
         self._regularizer_terms = []
@@ -116,20 +117,20 @@ class SampleNetwork:
                 downstream_data.total_flux += my_data.total_flux
 
     def _build_regularizer_terms(self) -> None:
-        # sample_network=sample_network, adjacency_graph=sample_adjacency
         # Build the regularizer
-        regularizer_terms = []
-        # for adjacent_nodes, border_length in sample_adjacency.items():
-        #   node_a, node_b = adjacent_nodes
-        #   a_data = sample_network.nodes[node_a]['data']
-        #   b_data = sample_network.nodes[node_b]['data']
-        #   for e in a_data.my_concentrations.keys():
-        #     assert e in b_data.my_concentrations.keys()
-        #     a_concen = a_data.my_concentrations[e]
-        #     b_concen = b_data.my_concentrations[e]
-        # TODO(r-barnes) replace regularizer misfit with log-ratio substitute
-        #     regularizer_terms.append(border_length * (a_concen-b_concen))
-        return regularizer_terms
+        sample_names = [
+            node for node in self.sample_network.nodes
+        ]  # Sample names for each node. TODO. MAKE THIS A DICTIONARY PART OF THE CLASS
+        for adjacent_nodes, border_length in self.sample_adjacency.items():
+            # NB adjacency network stores samples as numbers from 1 - 63 (*not* 0 - 62)
+            node_a = sample_names[adjacent_nodes[0] - 1]  # Get samplename from node 'number'
+            node_b = sample_names[adjacent_nodes[1] - 1]
+            a_concen = self.sample_network.nodes[node_a]["data"].my_value
+            b_concen = self.sample_network.nodes[node_b]["data"].my_value
+            #           self._regularizer_terms.append(border_length * (cp_log_ratio_norm(a_concen,b_concen)))  # < 'log-ratio' difference (preferable)
+            self._regularizer_terms.append(
+                border_length * (a_concen - b_concen)
+            )  # simple difference (not desirable)
 
     def _build_problem(self) -> None:
         assert self._primary_terms
@@ -167,14 +168,24 @@ class SampleNetwork:
         for x in self._site_to_parameter.values():
             assert x.value is not None
 
-        self._regularizer_strength.value = regularization_strength
+        if self._regularizer_terms and not regularization_strength:
+            print(
+                "WARNING: Regularizer terms present but no strength assigned. \n Using strength = 1e-3"
+            )
+            self._regularizer_strength.value = 1e-3
+        else:
+            print("Setting strenght")
+            self._regularizer_strength.value = regularization_strength
 
         # Solvers that can handle this problem type include:
         # ECOS, SCS
         # See: https://www.cvxpy.org/tutorial/advanced/index.html#choosing-a-solver
         # See: https://www.cvxpy.org/tutorial/advanced/index.html#setting-solver-options
         solvers = {
-            "scip": {"solver": cp.SCIP, "verbose": True},  # VERY SLOW, probably don't use
+            "scip": {
+                "solver": cp.SCIP,
+                "verbose": True,
+            },  # VERY SLOW, probably don't use
             "ecos": {
                 "solver": cp.ECOS,
                 "verbose": True,
@@ -317,7 +328,9 @@ def process_data(
 
 def main():
     results = process_data(
-        data_dir="data/", data_filename="data/geochem_no_dupes.dat", excluded_elements=["Bi", "S"]
+        data_dir="data/",
+        data_filename="data/geochem_no_dupes.dat",
+        excluded_elements=["Bi", "S"],
     )
     print(results)
 
