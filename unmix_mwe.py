@@ -15,26 +15,22 @@ print(os.getcwd())
 obs_data = pd.read_csv("data/geochem_no_dupes.dat", delimiter=" ")
 obs_data = obs_data.drop(columns=["Bi", "S"])
 
-element = "Be"  # Set element
+element = "Mg"  # Set element
 sample_network, sample_adjacency = gio.get_sample_graphs("data/")
 
-plt.figure(figsize=(15, 10))  # Visualise network
-gio.plot_network(sample_network)
-plt.show()
+# plt.figure(figsize=(15, 10))  # Visualise network
+# gio.plot_network(sample_network)
+# plt.show()
 problem = gio.SampleNetwork(sample_network=sample_network, sample_adjacency=sample_adjacency)
 
 
 element_data = gio.get_element_obs(
     element, obs_data
 )  # Return dictionary of {sample_name:concentration}
-element_pred_down = problem.solve(
-    element_data, solver="ecos", regularization_strength=1e-3
-)  # Solve for downstream predictions
+element_pred_down, element_pred_upstream = problem.solve(
+    element_data, solver="ecos", regularization_strength=10 ** (-3)
+)  # Solve problem
 
-
-element_pred_upstream = gio.get_upstream_prediction_dictionary(
-    sample_network
-)  # Get upstream predictions
 area_dict = gio.get_unique_upstream_areas(sample_network)  # Extract areas for each basin
 upstream_map = gio.get_upstream_concentration_map(
     area_dict, element_pred_upstream
@@ -46,5 +42,5 @@ plt.show()
 # Visualise outputs upstream
 plt.imshow(upstream_map)
 cb = plt.colorbar()
-cb.set_label("Be concentration mg/kg")
+cb.set_label(element + "concentration mg/kg")
 plt.show()

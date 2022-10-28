@@ -211,7 +211,12 @@ class SampleNetwork:
             (sample, value * obs_mean) for sample, value in downstream_preds.items()
         )
 
-        return downstream_preds
+        upstream_preds = get_upstream_prediction_dictionary(sample_network=self.sample_network)
+        upstream_preds.update(
+            (sample, value * obs_mean) for sample, value in downstream_preds.items()
+        )
+
+        return downstream_preds, upstream_preds
 
 
 def get_downstream_prediction_dictionary(sample_network: nx.DiGraph) -> pd.DataFrame:
