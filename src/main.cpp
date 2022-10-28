@@ -11,7 +11,7 @@ int main(int argc, char **argv){
 
   const std::string data_dir = argv[1];
 
-  faster_unmixer(data_dir);
+  fastunmixer::faster_unmixer(data_dir);
 
   return 0;
 }

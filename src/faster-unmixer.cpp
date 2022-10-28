@@ -16,8 +16,64 @@
 
 using namespace richdem;
 
-std::vector<SampleData> get_sample_data(const std::string &data_dir){
-  std::vector<SampleData> sample_data;
+namespace fastunmixer {
+
+namespace internal {
+
+struct PairHash {
+  std::size_t operator()(const std::pair<uint32_t, uint32_t>& sp) const {
+    // Boost hash combine function: https://stackoverflow.com/a/27952689/752843
+    return sp.first ^ (sp.second + 0x9e3779b9 + (sp.first << 6) + (sp.first >> 2));
+  }
+};
+
+struct SampleData {
+  int64_t x = std::numeric_limits<int64_t>::min();
+  int64_t y = std::numeric_limits<int64_t>::min();
+  std::string name = unset_node_name;
+};
+
+// Each SampleNode correspond to a sample, specified by a name and (x,y)
+// location, as well as a portion of the watershed. This portion of the
+// watershed flows into a downstream node and receives flow from upstream nodes
+struct SampleNode {
+  using name_t = std::string;
+  // Sample data
+  SampleData data;
+  // Sample's water flows downstream into this node
+  size_t downstream_node = NO_DOWNSTREAM_NEIGHBOUR;
+  // Sample receives water from these upstream nodes
+  std::vector<std::string> upstream_nodes;
+  // Area that uniquely contributes to this sample
+  int64_t area = 0;
+  // Total upstream area including `area`
+  int64_t total_upstream_area = 0;
+
+  // Makes a root node
+  static SampleNode make_root_node() {
+    SampleNode temp;
+    temp.data.name = root_node_name;
+    return temp;
+  }
+
+  static SampleNode make_w_downstream_and_sample(
+    const size_t &downstream_node,
+    const SampleData &sample_data
+  ){
+    SampleNode temp;
+    temp.downstream_node = downstream_node;
+    temp.data = sample_data;
+    return temp;
+  }
+};
+
+using NeighborsToBorderLength = std::unordered_map<std::pair<uint32_t, uint32_t>, int64_t, PairHash>;
+
+}
+
+
+std::vector<internal::SampleData> get_sample_data(const std::string &data_dir){
+  std::vector<internal::SampleData> sample_data;
 
   {
     std::ifstream fin(data_dir + "/fitted_samp_locs_no_dupes.dat");
@@ -33,13 +89,6 @@ std::vector<SampleData> get_sample_data(const std::string &data_dir){
       sample_data.back().x = sx;
       sample_data.back().y = sy;
     }
-  // {
-  //   std::ifstream fin(data_dir + "/locality_nodes.dat");
-  //   double sx;
-  //   while(fin>>sx){
-  //     sample_data.emplace_back();
-  //     sample_data.back().x = sx;
-  //   }
   }
 
   {
@@ -58,7 +107,47 @@ std::vector<SampleData> get_sample_data(const std::string &data_dir){
   return sample_data;
 }
 
-std::pair<std::vector<SampleNode>, adjacency_graph_t> faster_unmixer(const std::string& data_dir){
+void calculate_total_upstream_areas(std::vector<internal::SampleNode> &sample_graph){
+  // Count how many upstream neighbours we're waiting on
+  std::vector<size_t> deps(sample_graph.size());
+  for(size_t i = 0; i < sample_graph.size(); i++){
+    deps.at(i) = sample_graph.at(i).upstream_nodes.size();
+  }
+
+  // Find cells with no upstream neighbours
+  std::queue<size_t> q;
+  for(size_t i = 0; i < sample_graph.size(); i++){
+    if(deps.at(i)==0){
+      q.emplace(i);
+    }
+  }
+
+  while(!q.empty()){
+    const auto c = q.front();
+    q.pop();
+
+    auto& self = sample_graph.at(c);
+
+    // Add my own area
+    self.total_upstream_area += self.area;
+
+    if(self.downstream_node==NO_DOWNSTREAM_NEIGHBOUR){
+      continue;
+    }
+
+    // Add my area to downstream neighbour
+    sample_graph.at(self.downstream_node).total_upstream_area += self.total_upstream_area;
+
+    // My downstream node no longer depends on me
+    deps.at(self.downstream_node)--;
+
+    if(deps.at(self.downstream_node)==0){
+      q.emplace(self.downstream_node);
+    }
+  }
+}
+
+std::pair<std::vector<internal::SampleNode>, internal::NeighborsToBorderLength> faster_unmixer_internal(const std::string& data_dir){
   // Load data
   Array2D<d8_flowdir_t> arc_flowdirs(data_dir + "/d8.asc");
 
@@ -69,14 +158,14 @@ std::pair<std::vector<SampleNode>, adjacency_graph_t> faster_unmixer(const std::
 
   // Get sample locations and put them in a set using flat-indexing for fast
   // look-up
-  std::unordered_map<uint32_t, SampleData> sample_locs;
+  std::unordered_map<uint32_t, internal::SampleData> sample_locs;
   for(const auto &sample: get_sample_data(data_dir)){
     // sample_locs[sample.x] = sample;
     sample_locs[flowdirs.xyToI(sample.x, 862-sample.y)] = sample;
   }
 
   // Graph of how the samples are connected together.
-  std::vector<SampleNode> sample_parent_graph;
+  std::vector<internal::SampleNode> sample_parent_graph;
 
   // Identify cells which do not flow to anywhere. These are the start of our
   // region-identifying procedure
@@ -91,7 +180,7 @@ std::pair<std::vector<SampleNode>, adjacency_graph_t> faster_unmixer(const std::
   constexpr auto NO_LABEL = 0;
   auto sample_label = Array2D<uint32_t>::make_from_template(flowdirs, NO_LABEL);
   sample_label.setNoData(NO_LABEL);
-  sample_parent_graph.emplace_back(0, SampleData{});
+  sample_parent_graph.push_back(internal::SampleNode::make_root_node());
 
   // Iterate in a wave from all the flow endpoints to the headwaters, labeling
   // cells as we go.
@@ -107,8 +196,10 @@ std::pair<std::vector<SampleNode>, adjacency_graph_t> faster_unmixer(const std::
       // The current label will become the parent label
       const auto my_current_label = sample_label(c.x,c.y);
       auto& parent = sample_parent_graph.at(my_current_label);
-      parent.children.push_back(my_new_label);
-      sample_parent_graph.emplace_back(my_current_label, data);
+      parent.upstream_nodes.push_back(data.name);
+      sample_parent_graph.push_back(
+        internal::SampleNode::make_w_downstream_and_sample(my_current_label, data)
+      );
       // Update the sample's label
       sample_label(c.x,c.y) = my_new_label;
     }
@@ -131,6 +222,9 @@ std::pair<std::vector<SampleNode>, adjacency_graph_t> faster_unmixer(const std::
     }
   }
 
+  // Save regions output
+  sample_label.saveGDAL("labels.tif");
+
   // Sanity check
   {
     size_t total_area=0;
@@ -142,8 +236,9 @@ std::pair<std::vector<SampleNode>, adjacency_graph_t> faster_unmixer(const std::
     }
   }
 
-  adjacency_graph_t adjacency_graph;
+  internal::NeighborsToBorderLength adjacency_graph;
 
+  // Get border lengths between adjacent sample regions
   iterate_2d(sample_label, [&](const auto x, const auto y){
     const auto my_label = sample_label(x, y);
     if(my_label == sample_label.noData()){
@@ -163,8 +258,7 @@ std::pair<std::vector<SampleNode>, adjacency_graph_t> faster_unmixer(const std::
     }
   });
 
-  // Save regions output
-  sample_label.saveGDAL("labels.tif");
+  calculate_total_upstream_areas(sample_parent_graph);
 
   std::ofstream fout_sg("sample_graph.dot");
   fout_sg<<"# dot -Tpng sample_graph.dot -o sample_graph.png"<<std::endl;
@@ -177,4 +271,36 @@ std::pair<std::vector<SampleNode>, adjacency_graph_t> faster_unmixer(const std::
   fout_sg<<"}"<<std::endl;
 
   return {sample_parent_graph, adjacency_graph};
+}
+
+std::pair<SampleGraph, NeighborsToBorderLength> faster_unmixer(const std::string& data_dir){
+  const auto& [sample_parent_graph, adjacency_graph_internal] = faster_unmixer_internal(data_dir);
+
+  NeighborsToBorderLength adjacency_graph_external;
+  for(auto &x: adjacency_graph_internal){
+    auto nodea = sample_parent_graph.at(x.first.first).data.name;
+    auto nodeb = sample_parent_graph.at(x.first.second).data.name;
+    if(nodea > nodeb){
+      std::swap(nodea, nodeb);
+    }
+    adjacency_graph_external[{nodea, nodeb}] = x.second;
+  }
+
+  SampleGraph nodes;
+  for(const auto &x : sample_parent_graph){
+    const std::string downstream_node_name = (x.downstream_node == NO_DOWNSTREAM_NEIGHBOUR) ? root_node_name : sample_parent_graph.at(x.downstream_node).data.name;
+    nodes[x.data.name] = SampleNode{
+      .name = x.data.name,
+      .x = x.data.x,
+      .y = x.data.y,
+      .downstream_node = downstream_node_name,
+      .upstream_nodes = x.upstream_nodes,
+      .area = x.area,
+      .total_upstream_area = x.total_upstream_area
+    };
+  }
+
+  return {nodes, adjacency_graph_external};
+}
+
 }

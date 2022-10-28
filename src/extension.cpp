@@ -4,21 +4,21 @@
 #include <pybind11/stl.h>
 
 namespace py = pybind11;
+using namespace fastunmixer;
 
 PYBIND11_MODULE(pyfastunmix, m) {
   m.doc() = "fastunmix module"; // optional module docstring
 
-  py::class_<SampleData>(m, "SampleData", py::dynamic_attr())
-      .def_readonly("x", &SampleData::x)
-      .def_readonly("y", &SampleData::y)
-      .def_readonly("name", &SampleData::name);
-
   py::class_<SampleNode>(m, "SampleNode", py::dynamic_attr())
+      .def_readonly("name", &SampleNode::name)
+      .def_readonly("x", &SampleNode::x)
+      .def_readonly("y", &SampleNode::y)
       .def_readonly("downstream_node", &SampleNode::downstream_node)
-      .def_readonly("children", &SampleNode::children)
+      .def_readonly("upstream_nodes", &SampleNode::upstream_nodes)
       .def_readonly("area", &SampleNode::area)
-      .def_readwrite("total_area", &SampleNode::total_area)
-      .def_readonly("data", &SampleNode::data);
+      .def_readonly("total_upstream_area", &SampleNode::total_upstream_area);
 
   m.def("fastunmix", &faster_unmixer, "Get a graph for fast unmixing", py::arg("data_dir"));
+
+  m.attr("root_node_name") = root_node_name;
 }
