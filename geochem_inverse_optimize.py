@@ -317,7 +317,9 @@ def process_data(
 
         element_data = get_element_obs(element=element, obs_data=obs_data)
         try:
-            predictions = problem.solve(element_data, solver="ecos", regularization_strength=1e-3)
+            predictions, _ = problem.solve(
+                element_data, solver="ecos", regularization_strength=1e-3
+            )
         except cp.error.SolverError as err:
             print(f"\033[91mSolver Error - skipping this element!\n{err}")
             continue
