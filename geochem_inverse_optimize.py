@@ -99,13 +99,11 @@ class SampleNetwork:
             my_data.my_value = cp.Variable(pos=True)
 
             # area weighted contribution from this node
-            # TODO(rbarnes): Try scaling area of a region by dividing by total area of all regions. `my_data.normalized_area`
             my_data.my_flux = my_data.area * my_data.my_value
 
             # Add the flux I generate to the total flux passing through me
             my_data.total_flux += my_data.my_flux
 
-            # Normalise observation by mean
             observed = cp.Parameter(pos=True)
             self._site_to_parameter[my_data.data.name] = observed
             normalised_concentration = my_data.total_flux / my_data.total_area
@@ -118,19 +116,18 @@ class SampleNetwork:
 
     def _build_regularizer_terms(self) -> None:
         # Build the regularizer
-        sample_names = [
-            node for node in self.sample_network.nodes
-        ]  # Sample names for each node. TODO. MAKE THIS A DICTIONARY PART OF THE CLASS
+        sample_names = list(self.sample_network.nodes)
         for adjacent_nodes, border_length in self.sample_adjacency.items():
-            # NB adjacency network stores samples as numbers from 1 - 63 (*not* 0 - 62)
+            # Adjacency network stores samples as numbers from [1,Inf) since 0
+            # is reserved as the node everything drains into
             node_a = sample_names[adjacent_nodes[0] - 1]  # Get samplename from node 'number'
             node_b = sample_names[adjacent_nodes[1] - 1]
             a_concen = self.sample_network.nodes[node_a]["data"].my_value
             b_concen = self.sample_network.nodes[node_b]["data"].my_value
-            #           self._regularizer_terms.append(border_length * (cp_log_ratio_norm(a_concen,b_concen)))  # < 'log-ratio' difference (preferable)
-            self._regularizer_terms.append(
-                border_length * (a_concen - b_concen)
-            )  # simple difference (not desirable)
+            # TODO: Make difference a log-ratio
+            # self._regularizer_terms.append(border_length * (cp_log_ratio_norm(a_concen,b_concen)))
+            # Simple difference (not desirable)
+            self._regularizer_terms.append(border_length * (a_concen - b_concen))
 
     def _build_problem(self) -> None:
         assert self._primary_terms
@@ -163,18 +160,15 @@ class SampleNetwork:
         # Assign each observed value to a site, making sure that the site exists
         for site, value in observation_data.items():
             assert site in self._site_to_parameter
+            # Normalise observation by mean
             self._site_to_parameter[site].value = value / obs_mean
         # Ensure that all sites in the problem were assigned
         for x in self._site_to_parameter.values():
             assert x.value is not None
 
         if self._regularizer_terms and not regularization_strength:
-            print(
-                "WARNING: Regularizer terms present but no strength assigned. \n Using strength = 1e-3"
-            )
-            self._regularizer_strength.value = 1e-3
+            raise Exception("WARNING: Regularizer terms present but no strength assigned.")
         else:
-            print("Setting strenght")
             self._regularizer_strength.value = regularization_strength
 
         # Solvers that can handle this problem type include:
