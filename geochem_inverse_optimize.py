@@ -25,7 +25,9 @@ def cp_log_ratio_norm(a, b):
     return cp.maximum(a / b, b * cp.inv_pos(a))
 
 
-def nx_topological_sort_with_data(G: nx.DiGraph) -> Iterator[Tuple[str, pyfastunmix.SampleNode]]:
+def nx_topological_sort_with_data(
+    G: nx.DiGraph,
+) -> Iterator[Tuple[str, pyfastunmix.SampleNode]]:
     return ((x, G.nodes[x]["data"]) for x in nx.topological_sort(G))
 
 
@@ -52,7 +54,9 @@ def plot_network(G: nx.DiGraph) -> None:
     os.remove(tempname)
 
 
-def get_sample_graphs(data_dir: str) -> Tuple[nx.DiGraph, "pyfastunmix.SampleAdjacency"]:
+def get_sample_graphs(
+    data_dir: str,
+) -> Tuple[nx.DiGraph, "pyfastunmix.SampleAdjacency"]:
     # Get the graph representations of the data
     sample_network_raw, sample_adjacency = pyfastunmix.fastunmix(data_dir)
 
@@ -70,7 +74,9 @@ def get_sample_graphs(data_dir: str) -> Tuple[nx.DiGraph, "pyfastunmix.SampleAdj
 
 class SampleNetwork:
     def __init__(
-        self, sample_network: nx.DiGraph, sample_adjacency: "pyfastunmix.SampleAdjacency"
+        self,
+        sample_network: nx.DiGraph,
+        sample_adjacency: "pyfastunmix.SampleAdjacency",
     ) -> None:
         self.sample_network = sample_network
         self.sample_adjacency = sample_adjacency
@@ -172,7 +178,7 @@ class SampleNetwork:
             },
             "ecos": {
                 "solver": cp.ECOS,
-                "verbose": True,
+                "verbose": False,
                 "max_iters": 10000,
                 "abstol_inacc": 5e-5,
                 "reltol_inacc": 5e-5,
@@ -232,6 +238,29 @@ def get_unique_upstream_areas(sample_network: nx.DiGraph) -> Dict[str, np.ndarra
     for the sample site."""
     I = plt.imread("labels.tif")[:, :, 0]
     return {node: I == data["data"].label for node, data in sample_network.nodes(data=True)}
+
+
+def calibrate_regularizer(
+    sample_network: nx.DiGraph,
+    element_data: ElementData,
+    min_: float,
+    max_: float,
+    number: float,
+):
+    vals = np.logspace(min_, max_, num=number)  # regularizer strengths to try
+    for val in vals:
+        print("________________________________________________________")
+        print("Trying regularizer strength: 10^", round(np.log10(val), 3))
+        _, _ = sample_network.solve(element_data, solver="ecos", regularization_strength=val)
+        roughness = cp.norm(cp.vstack(sample_network._regularizer_terms)).value
+        misfit = cp.norm(cp.vstack(sample_network._primary_terms)).value
+        print("Roughness:", np.round(roughness, 4))
+        print("Data misfit:", np.round(misfit, 4))
+        plt.scatter(roughness, misfit, c="grey")
+        plt.text(roughness, misfit, str(round(np.log10(val), 3)))
+    plt.xlabel("Roughness")
+    plt.ylabel("Data misfit")
+    plt.show()
 
 
 def get_upstream_concentration_map(areas, upstream_preds):
