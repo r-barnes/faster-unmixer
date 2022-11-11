@@ -287,16 +287,18 @@ std::pair<SampleGraph, NeighborsToBorderLength> faster_unmixer(const std::string
   }
 
   SampleGraph nodes;
-  for(const auto &x : sample_parent_graph){
-    const std::string downstream_node_name = (x.downstream_node == NO_DOWNSTREAM_NEIGHBOUR) ? root_node_name : sample_parent_graph.at(x.downstream_node).data.name;
-    nodes[x.data.name] = SampleNode{
-      .name = x.data.name,
-      .x = x.data.x,
-      .y = x.data.y,
+  for(size_t i = 0; i < sample_parent_graph.size(); i++){
+    const auto node = sample_parent_graph.at(i);
+    const std::string downstream_node_name = (node.downstream_node == NO_DOWNSTREAM_NEIGHBOUR) ? root_node_name : sample_parent_graph.at(node.downstream_node).data.name;
+    nodes[node.data.name] = SampleNode{
+      .name = node.data.name,
+      .x = node.data.x,
+      .y = node.data.y,
       .downstream_node = downstream_node_name,
-      .upstream_nodes = x.upstream_nodes,
-      .area = x.area,
-      .total_upstream_area = x.total_upstream_area
+      .upstream_nodes = node.upstream_nodes,
+      .area = node.area,
+      .total_upstream_area = node.total_upstream_area,
+      .label = static_cast<int64_t>(i)
     };
   }
 

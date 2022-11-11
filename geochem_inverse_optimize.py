@@ -141,8 +141,8 @@ class SampleNetwork:
         observation_data: ElementData,
         regularization_strength: Optional[float] = None,
         solver: str = "gurobi",
-    ):
-        obs_mean = np.mean(list(observation_data.values()))
+    ) -> Tuple[ElementData, ElementData]:
+        obs_mean: float = np.mean(list(observation_data.values()))
 
         # Reset all sites' observations
         for x in self._site_to_parameter.values():
@@ -190,36 +190,30 @@ class SampleNetwork:
         )
         print(f"Objective value = {objective_value}")
         # Return outputs
-        downstream_preds = get_downstream_prediction_dictionary(sample_network=self.sample_network)
-        downstream_preds.update(
-            (sample, value * obs_mean) for sample, value in downstream_preds.items()
-        )
+        downstream_preds = self.get_downstream_prediction_dictionary()
+        upstream_preds = self.get_upstream_prediction_dictionary()
 
-        upstream_preds = get_upstream_prediction_dictionary(sample_network=self.sample_network)
-        upstream_preds.update(
-            (sample, value * obs_mean) for sample, value in downstream_preds.items()
-        )
+        downstream_preds = {sample: value * obs_mean for sample, value in downstream_preds.items()}
+        upstream_preds = {sample: value * obs_mean for sample, value in upstream_preds.items()}
 
         return downstream_preds, upstream_preds
 
+    def get_downstream_prediction_dictionary(self) -> ElementData:
+        # Print the solution we found
+        predictions: ElementData = {}
+        for sample_name, data in self.sample_network.nodes(data=True):
+            data = data["data"]
+            predictions[sample_name] = data.total_flux.value / data.total_upstream_area
 
-def get_downstream_prediction_dictionary(sample_network: nx.DiGraph) -> pd.DataFrame:
-    # Print the solution we found
-    predictions: ElementData = {}
-    for sample_name, data in sample_network.nodes(data=True):
-        data = data["data"]
-        predictions[sample_name] = data.total_flux.value / data.total_upstream_area
+        return predictions
 
-    return predictions
-
-
-def get_upstream_prediction_dictionary(sample_network: nx.DiGraph) -> pd.DataFrame:
-    # Get the predicted upstream concentration we found
-    predictions: ElementData = {}
-    for sample_name, data in sample_network.nodes(data=True):
-        data = data["data"]
-        predictions[sample_name] = data.my_value.value
-    return predictions
+    def get_upstream_prediction_dictionary(self) -> ElementData:
+        # Get the predicted upstream concentration we found
+        predictions: ElementData = {}
+        for sample_name, data in self.sample_network.nodes(data=True):
+            data = data["data"]
+            predictions[sample_name] = data.my_value.value
+        return predictions
 
 
 def get_element_obs(element: str, obs_data: pd.DataFrame) -> ElementData:
@@ -232,17 +226,12 @@ def get_element_obs(element: str, obs_data: pd.DataFrame) -> ElementData:
     return element_data
 
 
-def get_unique_upstream_areas(sample_network: nx.DiGraph):
+def get_unique_upstream_areas(sample_network: nx.DiGraph) -> Dict[str, np.ndarray]:
     """Generates a dictionary which maps sample numbers onto
     the unique upstream area (as a boolean mask)
     for the sample site."""
     I = plt.imread("labels.tif")[:, :, 0]
-    areas = {}
-    counter = 1
-    for node in sample_network.nodes:
-        areas[node] = I == counter
-        counter += 1
-    return areas
+    return {node: I == data["data"].label for node, data in sample_network.nodes(data=True)}
 
 
 def get_upstream_concentration_map(areas, upstream_preds):
@@ -290,6 +279,8 @@ def process_data(
     obs_data = obs_data.drop(columns=excluded_elements)
 
     problem = SampleNetwork(sample_network=sample_network, sample_adjacency=sample_adjacency)
+
+    get_unique_upstream_areas(problem.sample_network)
 
     results = None
     # TODO(r-barnes,alexlipp): Loop over all elements once we achieve acceptable results
