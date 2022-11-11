@@ -29,9 +29,9 @@ def nx_topological_sort_with_data(G: nx.DiGraph) -> Iterator[Tuple[str, pyfastun
     return ((x, G.nodes[x]["data"]) for x in nx.topological_sort(G))
 
 
-def nx_get_downstream(G: nx.DiGraph, x: str) -> str:
+def nx_get_downstream(G: nx.DiGraph, x: str) -> Optional[str]:
     """Gets the downstream child from a node with only one child"""
-    s = list(G.successors(x))
+    s: List[str] = list(G.successors(x))
     if len(s) == 0:
         return None
     elif len(s) == 1:

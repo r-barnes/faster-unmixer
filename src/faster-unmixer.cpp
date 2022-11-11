@@ -224,6 +224,12 @@ std::pair<std::vector<internal::SampleNode>, internal::NeighborsToBorderLength> 
 
   // Save regions output
   sample_label.saveGDAL("labels.tif");
+  {
+    std::ofstream fout("labels.csv");
+    for(size_t i = 0; i < sample_parent_graph.size(); i++){
+      fout<<i<<",\""<<sample_parent_graph.at(i).data.name<<"\""<<std::endl;
+    }
+  }
 
   // Sanity check
   {
