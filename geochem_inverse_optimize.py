@@ -25,9 +25,7 @@ def cp_log_ratio_norm(a, b):
     return cp.maximum(a / b, b * cp.inv_pos(a))
 
 
-def nx_topological_sort_with_data(
-    G: nx.DiGraph,
-) -> Iterator[Tuple[str, pyfastunmix.SampleNode]]:
+def nx_topological_sort_with_data(G: nx.DiGraph) -> Iterator[Tuple[str, pyfastunmix.SampleNode]]:
     return ((x, G.nodes[x]["data"]) for x in nx.topological_sort(G))
 
 
@@ -54,9 +52,7 @@ def plot_network(G: nx.DiGraph) -> None:
     os.remove(tempname)
 
 
-def get_sample_graphs(
-    data_dir: str,
-) -> Tuple[nx.DiGraph, "pyfastunmix.SampleAdjacency"]:
+def get_sample_graphs(data_dir: str) -> Tuple[nx.DiGraph, "pyfastunmix.SampleAdjacency"]:
     # Get the graph representations of the data
     sample_network_raw, sample_adjacency = pyfastunmix.fastunmix(data_dir)
 
@@ -74,9 +70,7 @@ def get_sample_graphs(
 
 class SampleNetwork:
     def __init__(
-        self,
-        sample_network: nx.DiGraph,
-        sample_adjacency: "pyfastunmix.SampleAdjacency",
+        self, sample_network: nx.DiGraph, sample_adjacency: "pyfastunmix.SampleAdjacency"
     ) -> None:
         self.sample_network = sample_network
         self.sample_adjacency = sample_adjacency
@@ -210,7 +204,6 @@ class SampleNetwork:
         for sample_name, data in self.sample_network.nodes(data=True):
             data = data["data"]
             predictions[sample_name] = data.total_flux.value / data.total_upstream_area
-
         return predictions
 
     def get_upstream_prediction_dictionary(self) -> ElementData:
@@ -220,6 +213,12 @@ class SampleNetwork:
             data = data["data"]
             predictions[sample_name] = data.my_value.value
         return predictions
+
+    def get_misfit(self) -> float:
+        return cp.norm(cp.vstack(self._primary_terms)).value
+
+    def get_roughness(self) -> float:
+        return cp.norm(cp.vstack(self._regularizer_terms)).value
 
 
 def get_element_obs(element: str, obs_data: pd.DataFrame) -> ElementData:
@@ -240,20 +239,20 @@ def get_unique_upstream_areas(sample_network: nx.DiGraph) -> Dict[str, np.ndarra
     return {node: I == data["data"].label for node, data in sample_network.nodes(data=True)}
 
 
-def calibrate_regularizer(
+def plot_sweep_of_regularizer_strength(
     sample_network: nx.DiGraph,
     element_data: ElementData,
     min_: float,
     max_: float,
-    number: float,
+    trial_num: float,
 ):
-    vals = np.logspace(min_, max_, num=number)  # regularizer strengths to try
+    vals = np.logspace(min_, max_, num=trial_num)  # regularizer strengths to try
     for val in vals:
-        print("________________________________________________________")
+        print(20 * "_")
         print("Trying regularizer strength: 10^", round(np.log10(val), 3))
         _, _ = sample_network.solve(element_data, solver="ecos", regularization_strength=val)
-        roughness = cp.norm(cp.vstack(sample_network._regularizer_terms)).value
-        misfit = cp.norm(cp.vstack(sample_network._primary_terms)).value
+        roughness = sample_network.get_roughness()
+        misfit = sample_network.get_misfit()
         print("Roughness:", np.round(roughness, 4))
         print("Data misfit:", np.round(misfit, 4))
         plt.scatter(roughness, misfit, c="grey")
