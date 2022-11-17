@@ -52,7 +52,7 @@ for sample, values in element_pred_down_mc.items():
 
 # print(downstream_uncerts)
 
-area_dict = gio.get_unique_upstreamz_areas(sample_network)  # Extract areas for each basin
+area_dict = gio.get_unique_upstream_areas(sample_network)  # Extract areas for each basin
 upstream_map = gio.get_upstream_concentration_map(
     area_dict, element_pred_upstream
 )  # Assign to upstream preds
