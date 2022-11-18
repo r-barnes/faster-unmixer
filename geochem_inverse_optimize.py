@@ -198,6 +198,31 @@ class SampleNetwork:
 
         return downstream_preds, upstream_preds
 
+    def solve_montecarlo(
+        self,
+        observation_data: ElementData,
+        relative_error: float,
+        num_repeats: int,
+        regularization_strength: float,
+        solver: str = "gurobi",
+    ):
+        predictions_down_mc = defaultdict(list)
+        predictions_up_mc = defaultdict(list)
+        for i in range(num_repeats):
+            observation_data_resampled = {
+                sample: value * np.random.normal(loc=1, scale=relative_error / 100)
+                for sample, value in observation_data.items()
+            }
+            element_pred_down, element_pred_upstream = self.solve(
+                observation_data=observation_data_resampled,
+                solver=solver,
+                regularization_strength=regularization_strength,
+            )  # Solve problem
+            for sample_name in element_pred_down.keys():
+                predictions_down_mc[sample_name] += [element_pred_down[sample_name]]
+                predictions_up_mc[sample_name] += [element_pred_upstream[sample_name]]
+        return predictions_down_mc, predictions_up_mc
+
     def get_downstream_prediction_dictionary(self) -> ElementData:
         # Print the solution we found
         predictions: ElementData = {}
