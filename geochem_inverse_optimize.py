@@ -70,7 +70,10 @@ def get_sample_graphs(data_dir: str) -> Tuple[nx.DiGraph, "pyfastunmix.SampleAdj
 
 class SampleNetwork:
     def __init__(
-        self, sample_network: nx.DiGraph, sample_adjacency: "pyfastunmix.SampleAdjacency"
+        self,
+        sample_network: nx.DiGraph,
+        sample_adjacency: "pyfastunmix.SampleAdjacency",
+        use_regularization: bool = True,
     ) -> None:
         self.sample_network = sample_network
         self.sample_adjacency = sample_adjacency
@@ -80,7 +83,8 @@ class SampleNetwork:
         self._regularizer_strength = cp.Parameter(nonneg=True)
         self._problem = None
         self._build_primary_terms()
-        self._build_regularizer_terms()
+        if use_regularization:
+            self._build_regularizer_terms()
         self._build_problem()
 
     def _build_primary_terms(self) -> None:
@@ -121,9 +125,6 @@ class SampleNetwork:
 
     def _build_problem(self) -> None:
         assert self._primary_terms
-
-        if not self._regularizer_terms:
-            print("WARNING: No regularizer terms found!")
 
         # Build the objective and constraints
         objective = cp.norm(cp.vstack(self._primary_terms))
