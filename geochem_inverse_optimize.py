@@ -21,8 +21,41 @@ ELEMENT_LIST: Final[List[str]] = ["H", "He", "Li", "Be", "B", "C", "N", "O", "F"
 ElementData = Dict[str, float]
 
 
-def cp_log_ratio_norm(a, b):
-    return cp.maximum(a / b, b * cp.inv_pos(a))
+class ReciprocalParameter:
+    """Used for times when you want a cvxpy Parameter and its ratio"""
+
+    def __init__(self, *args, **kwargs) -> None:
+        self._p = cp.Parameter(*args, **kwargs)
+        # Reciprocal of the above
+        self._rp = cp.Parameter(*args, **kwargs)
+
+    @property
+    def value(self) -> Optional[float]:
+        """Return the value of the Parameter"""
+        return self._p.value
+
+    @value.setter
+    def value(self, val: Optional[float]) -> None:
+        """
+        Simultaneously set the value of the Parameter (given by `p`)
+        and its reciprocal (given by `rp`)
+        """
+        self._p.value = val
+        self._rp.value = 1 / val if val is not None else None
+
+    @property
+    def p(self) -> cp.Parameter:
+        """Returns the parameter"""
+        return self._p
+
+    @property
+    def rp(self) -> cp.Parameter:
+        """Returns the reciprocal of the parameter"""
+        return self._rp
+
+
+def cp_log_ratio(a, b: ReciprocalParameter):
+    return cp.maximum(a * b.rp, b.p * cp.inv_pos(a))
 
 
 def nx_topological_sort_with_data(G: nx.DiGraph) -> Iterator[Tuple[str, pyfastunmix.SampleNode]]:
@@ -74,7 +107,7 @@ class SampleNetwork:
     ) -> None:
         self.sample_network = sample_network
         self.sample_adjacency = sample_adjacency
-        self._site_to_parameter: Dict[str, cp.Parameter] = {}
+        self._site_to_parameter: Dict[str, ReciprocalParameter] = {}
         self._primary_terms = []
         self._regularizer_terms = []
         self._regularizer_strength = cp.Parameter(nonneg=True)
@@ -99,10 +132,10 @@ class SampleNetwork:
             # Add the flux I generate to the total flux passing through me
             my_data.total_flux += my_data.my_flux
 
-            observed = cp.Parameter(pos=True)
+            observed = ReciprocalParameter(pos=True)
             self._site_to_parameter[my_data.name] = observed
             normalised_concentration = my_data.total_flux / my_data.total_upstream_area
-            self._primary_terms.append(cp_log_ratio_norm(normalised_concentration, observed))
+            self._primary_terms.append(cp_log_ratio(normalised_concentration, observed))
 
             if ds := nx_get_downstream(self.sample_network, sample_name):
                 downstream_data = self.sample_network.nodes[ds]["data"]
@@ -115,7 +148,7 @@ class SampleNetwork:
             a_concen = self.sample_network.nodes[adjacent_nodes[0]]["data"].my_value
             b_concen = self.sample_network.nodes[adjacent_nodes[1]]["data"].my_value
             # TODO: Make difference a log-ratio
-            # self._regularizer_terms.append(border_length * (cp_log_ratio_norm(a_concen,b_concen)))
+            # self._regularizer_terms.append(border_length * (cp_log_ratio(a_concen,b_concen)))
             # Simple difference (not desirable)
             self._regularizer_terms.append(border_length * (a_concen - b_concen))
 
