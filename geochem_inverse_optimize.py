@@ -2,7 +2,7 @@
 
 import os
 import tempfile
-from typing import Dict, Final, Iterator, List, Optional, Tuple
+from typing import DefaultDict, Dict, Final, Iterator, List, Optional, Tuple
 
 # TODO(rbarnes): Make a requirements file for conda
 import cvxpy as cp
@@ -206,8 +206,8 @@ class SampleNetwork:
         regularization_strength: float,
         solver: str = "gurobi",
     ):
-        predictions_down_mc = defaultdict(list)
-        predictions_up_mc = defaultdict(list)
+        predictions_down_mc = DefaultDict(list)
+        predictions_up_mc = DefaultDict(list)
         for i in range(num_repeats):
             observation_data_resampled = {
                 sample: value * np.random.normal(loc=1, scale=relative_error / 100)

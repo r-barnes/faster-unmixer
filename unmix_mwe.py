@@ -18,6 +18,7 @@ obs_data = obs_data.drop(columns=["Bi", "S"])
 
 element = "Mg"  # Set element
 sample_network, sample_adjacency = gio.get_sample_graphs("data/")
+regularizer_strength = 10 ** (-2.5)
 
 # plt.figure(figsize=(15, 10))  # Visualise network
 # gio.plot_network(sample_network)
