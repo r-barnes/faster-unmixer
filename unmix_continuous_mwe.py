@@ -1,7 +1,4 @@
 # Preamble
-import os
-import sys
-
 import matplotlib.pyplot as plt
 import pandas as pd
 
@@ -19,7 +16,7 @@ area_map = plt.imread("labels.tif")[:, :, 0]
 
 print("Building problem...")
 problem = gio.SampleNetworkContinuous(
-    sample_network=sample_network, area_labels=area_map, nx=100, ny=100
+    sample_network=sample_network, area_labels=area_map, nx=60, ny=60
 )
 element_data = gio.get_element_obs(
     element, obs_data

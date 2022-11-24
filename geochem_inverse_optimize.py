@@ -128,7 +128,6 @@ class SampleNetwork:
         # Build the main objective
         # Use a topological sort to ensure an upstream-to-downstream traversal
         for sample_name, my_data in nx_topological_sort_with_data(self.sample_network):
-            print(sample_name)
             # Set up a CVXPY parameter for each element for each node
             my_data.my_value = cp.Variable(pos=True)
 
@@ -282,13 +281,15 @@ class SampleNetwork:
 
 
 class SampleNetworkContinuous:
+
     # TODO: Docstrings
+
     def __init__(self, sample_network: nx.DiGraph, area_labels: np.array, nx: int, ny: int) -> None:
         self.sample_network = sample_network
-        self.grid = InverseGrid(nx, ny, area_labels)
-        self._site_to_parameter: Dict[str, cp.Parameter] = {}
+        self.grid = InverseGrid(nx, ny, area_labels, sample_network)
+        self._site_to_parameter: Dict[str, ReciprocalParameter] = {}
         self._primary_terms = []
-        self._regularizer_terms = self.grid.get_regularizer_terms()
+        self._regularizer_terms = self._build_regularizer_terms()
         self._regularizer_strength = cp.Parameter(nonneg=True)
         self._problem = None
         self._build_primary_terms()
@@ -303,16 +304,11 @@ class SampleNetworkContinuous:
 
         # TODO: Delete this legend when labels.tif is updated
         # Set up a number <-> string legend for upstream areas
-        sample_num_dict = {}
-        i = 1
-        for sample_name in nx.topological_sort(self.sample_network):
-            sample_num_dict[sample_name] = i
-            i += 1
+
         for sample_name, my_data in nx_topological_sort_with_data(self.sample_network):
             # # TODO: Update this to work with new labels.tif output
-            samp_num = sample_num_dict[sample_name]
             concs = [
-                node.concentration for node in self.grid.node_sample_dict[samp_num]
+                node.concentration for node in self.grid.node_sample_dict[sample_name]
             ]  # TODO: Update above to work with new labels.tif output
 
             my_data.my_value = cp.sum(concs) / len(
@@ -325,7 +321,7 @@ class SampleNetworkContinuous:
             # Add the flux I generate to the total flux passing through me
             my_data.total_flux += my_data.my_flux
 
-            observed = cp.Parameter(pos=True)
+            observed = ReciprocalParameter(pos=True)
             self._site_to_parameter[my_data.name] = observed
             normalised_concentration = my_data.total_flux / my_data.total_upstream_area
             self._primary_terms.append(cp_log_ratio(normalised_concentration, observed))
@@ -334,6 +330,25 @@ class SampleNetworkContinuous:
                 downstream_data = self.sample_network.nodes[ds]["data"]
                 # Add our flux to the downstream node's
                 downstream_data.total_flux += my_data.total_flux
+
+    def _build_regularizer_terms(self) -> None:
+        regularizer_terms = []
+        # Loop through all nodes in grid
+        for _, node in self.grid.node_coord_dict.items():
+            # If node outside of sample area it is ignored
+            if node.sample_num == "NaN":
+                continue
+            # If node has a neighbour to left, and this is not outside of area then we append the
+            # difference to the regulariser terms.
+            if node.left_neighbour and not (node.left_neighbour.sample_num == "NaN"):
+                # TODO: Make difference a log-ratio
+                regularizer_terms.append(node.concentration - node.left_neighbour.concentration)
+            # If node has a neighbour above, and this is not outside of area then we append the
+            # difference to the regulariser terms.
+            if node.top_neighbour and not (node.top_neighbour.sample_num == "NaN"):
+                # TODO: Make difference a log-ratio
+                regularizer_terms.append(node.concentration - node.top_neighbour.concentration)
+        return regularizer_terms
 
     def _build_problem(self) -> None:
         assert self._primary_terms
@@ -404,13 +419,40 @@ class SampleNetworkContinuous:
         )
         print(f"Objective value = {objective_value}")
         # Return outputs
-        downstream_preds = get_downstream_prediction_dictionary(sample_network=self.sample_network)
-        downstream_preds.update(
-            (sample, value * obs_mean) for sample, value in downstream_preds.items()
-        )
-
-        upstream_preds = self.grid.get_upstream_map() * obs_mean
+        downstream_preds = self.get_downstream_prediction_dictionary()
+        downstream_preds = {sample: value * obs_mean for sample, value in downstream_preds.items()}
+        upstream_preds = self.get_upstream_prediction_map() * obs_mean
         return downstream_preds, upstream_preds
+
+    def get_downstream_prediction_dictionary(self) -> ElementData:
+        # Print the solution we found
+        predictions: ElementData = {}
+        for sample_name, data in self.sample_network.nodes(data=True):
+            data = data["data"]
+            predictions[sample_name] = data.total_flux.value / data.total_upstream_area
+        return predictions
+
+    def get_upstream_prediction_map(self) -> np.array:
+        out = np.zeros(self.grid.area_labels.shape)
+        xstep = out.shape[1] / self.grid.nx
+        ystep = out.shape[0] / self.grid.ny
+        out = np.zeros(self.grid.area_labels.shape)
+        # Loop through inversion grid nodes
+        for i in np.arange(self.grid.nx):
+            for j in np.arange(self.grid.ny):
+                # indices which subdivide the areas on the base array for each inversion grid.
+                x_start = int(np.floor(i * xstep))
+                x_end = int(np.floor((i + 1) * xstep))
+                y_start = int(np.floor(j * ystep))
+                y_end = int(np.floor((j + 1) * ystep))
+                node = self.grid.node_coord_dict[(self.grid.xs[i], self.grid.ys[j])]
+                # Catch exception for nodes outside of area
+                if node.concentration:
+                    val = node.concentration.value
+                else:
+                    val = np.nan
+                out[y_start:y_end, x_start:x_end] = val
+        return out
 
 
 class InverseNode:
@@ -442,7 +484,8 @@ class InverseGrid:
     Args:
         nx (int) : Number of columns in the grid
         ny (int) : Number of rows in the grid
-        area_labels (np.array) : 2D array which matches upstream areas to sample numbers
+        area_labels (np.array) : 2D array which matches upstream areas to labels
+        sample_network (nx.Digraph) : Network of sample_sites along drainage, with associated data
 
     Attributes:
         nx (int) : Number of columns in the grid
@@ -454,7 +497,7 @@ class InverseGrid:
         node_sample_dict (float : list of InverseNode): Dict mapping sample numbers to list of nodes in its upstream area
     """
 
-    def __init__(self, nx: int, ny: int, area_labels: np.array) -> None:
+    def __init__(self, nx: int, ny: int, area_labels: np.array, sample_network: nx.DiGraph) -> None:
         self.area_labels = area_labels
         self.nx = nx
         self.ny = ny
@@ -466,6 +509,10 @@ class InverseGrid:
         self.ys = np.linspace(start=ystep / 2, stop=ymax - ystep / 2, num=ny)
         self.node_coord_dict = {}
         self.node_sample_dict = {}
+        # Map area labels to sample numbers
+        area_label_to_sample_num = {
+            data["data"].label: node for node, data in sample_network.nodes(data=True)
+        }
         # Loop through a (nx, ny) grid
         for i in range(self.nx):
             for j in range(self.ny):
@@ -483,9 +530,12 @@ class InverseGrid:
                     # Point towards neighbour (used for roughness calculation)
                     node.top_neighbour = self.node_coord_dict[(x_coord, self.ys[j - 1])]
                 # Set the sample number based off area map
-                node.sample_num = self.area_labels[int(np.floor(node.y)), int(np.floor(node.x))]
+                label = self.area_labels[int(np.floor(node.y)), int(np.floor(node.x))]  # area label
                 # Only assign variables for nodes within the sampled area
-                if not node.sample_num == 0:
+                if label == 0:
+                    node.sample_num = "NaN"
+                if not label == 0:
+                    node.sample_num = area_label_to_sample_num[label]
                     node.concentration = cp.Variable(pos=True)
                     # If sample already has upstream areas associated with it
                     if node.sample_num in self.node_sample_dict.keys():
@@ -501,47 +551,6 @@ class InverseGrid:
             raise Exception(
                 "Warning: Not all catchments contain a node. \n \t Increase resolution to resolve"
             )
-
-    def get_regularizer_terms(self) -> None:
-        regularizer_terms = []
-        # Loop through all nodes in grid
-        for _, node in self.node_coord_dict.items():
-            # If node outside of sample area it is ignored
-            if node.sample_num == 0:
-                continue
-            # If node has a neighbour to left, and this is not outside of area then we append the
-            # difference to the regulariser terms.
-            if node.left_neighbour and not (node.left_neighbour.sample_num == 0):
-                # TODO: Make difference a log-ratio
-                regularizer_terms.append(node.concentration - node.left_neighbour.concentration)
-            # If node has a neighbour above, and this is not outside of area then we append the
-            # difference to the regulariser terms.
-            if node.top_neighbour and not (node.top_neighbour.sample_num == 0):
-                # TODO: Make difference a log-ratio
-                regularizer_terms.append(node.concentration - node.top_neighbour.concentration)
-        return regularizer_terms
-
-    def get_upstream_map(self) -> np.array:
-        out = np.zeros(self.area_labels.shape)
-        xstep = out.shape[1] / self.nx
-        ystep = out.shape[0] / self.ny
-        out = np.zeros(self.area_labels.shape)
-        # Loop through inversion grid nodes
-        for i in np.arange(self.nx):
-            for j in np.arange(self.ny):
-                # indices which subdivide the areas on the base array for each inversion grid.
-                x_start = int(np.floor(i * xstep))
-                x_end = int(np.floor((i + 1) * xstep))
-                y_start = int(np.floor(j * ystep))
-                y_end = int(np.floor((j + 1) * ystep))
-                node = self.node_coord_dict[(self.xs[i], self.ys[j])]
-                # Catch exception for nodes outside of area
-                if node.concentration:
-                    val = node.concentration.value
-                else:
-                    val = np.nan
-                out[y_start:y_end, x_start:x_end] = val
-        return out
 
 
 def get_element_obs(element: str, obs_data: pd.DataFrame) -> ElementData:
