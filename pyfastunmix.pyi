@@ -18,5 +18,6 @@ class SampleNode:
   my_value: Any # TODO: cp.Variable
   my_flux: Any # TODO: cp.Expression?
   total_flux: Any # TODO: cp.Expression?
+  label: int
 
 def fastunmix(data_dir: str) -> Tuple[Dict[str, SampleNode], SampleAdjacency]: ...

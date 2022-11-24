@@ -3,6 +3,7 @@ import os
 import sys
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 from matplotlib.colors import LogNorm
 
@@ -17,6 +18,7 @@ obs_data = obs_data.drop(columns=["Bi", "S"])
 
 element = "Mg"  # Set element
 sample_network, sample_adjacency = gio.get_sample_graphs("data/")
+regularizer_strength = 10 ** (-2.5)
 
 # plt.figure(figsize=(15, 10))  # Visualise network
 # gio.plot_network(sample_network)
@@ -27,9 +29,30 @@ problem = gio.SampleNetwork(sample_network=sample_network, sample_adjacency=samp
 element_data = gio.get_element_obs(
     element, obs_data
 )  # Return dictionary of {sample_name:concentration}
+
+
+gio.plot_sweep_of_regularizer_strength(problem, element_data, -5, -1, 11)
+
+
 element_pred_down, element_pred_upstream = problem.solve(
     element_data, solver="ecos", regularization_strength=10 ** (-3)
 )  # Solve problem
+
+relative_error = 10  #%
+print("Calculating uncertainties with monte-carlo sampling")
+element_pred_down_mc, element_pred_up_mc = problem.solve_montecarlo(
+    element_data,
+    relative_error=relative_error,
+    num_repeats=50,
+    regularization_strength=regularizer_strength,
+    solver="ecos",
+)
+
+downstream_uncerts = {}
+for sample, values in element_pred_down_mc.items():
+    downstream_uncerts[sample] = np.std(values)
+
+# print(downstream_uncerts)
 
 area_dict = gio.get_unique_upstream_areas(sample_network)  # Extract areas for each basin
 upstream_map = gio.get_upstream_concentration_map(
