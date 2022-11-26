@@ -10,6 +10,7 @@
 
 #include <fstream>
 #include <queue>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -28,9 +29,9 @@ struct PairHash {
 };
 
 struct SampleData {
+  std::string name = unset_node_name;
   int64_t x = std::numeric_limits<int64_t>::min();
   int64_t y = std::numeric_limits<int64_t>::min();
-  std::string name = unset_node_name;
 };
 
 // Each SampleNode correspond to a sample, specified by a name and (x,y)
@@ -72,35 +73,23 @@ using NeighborsToBorderLength = std::unordered_map<std::pair<uint32_t, uint32_t>
 }
 
 
-std::vector<internal::SampleData> get_sample_data(const std::string &data_dir){
+std::vector<internal::SampleData> get_sample_data(const std::string &sample_filename){
   std::vector<internal::SampleData> sample_data;
 
   {
-    std::ifstream fin(data_dir + "/fitted_samp_locs_no_dupes.dat");
-    std::string header;
-    double sx;
-    double sy;
-    std::getline(fin, header);
-    if(header!="x_coordinate y_coordinate"){
-      throw std::runtime_error("Unexecpted header '" + header + "' for fitted_samp_locs_no_dupes!");
+    std::ifstream fin(sample_filename);
+    std::string temp;
+    std::getline(fin, temp);
+    if(!temp.starts_with("Sample.Code x_coordinate y_coordinate")){
+      throw std::runtime_error("'" + sample_filename + "' header must start with 'Sample.Code x_coordinate y_coordinate'!");
     }
-    while(fin>>sx>>sy){
-      sample_data.emplace_back();
-      sample_data.back().x = sx;
-      sample_data.back().y = sy;
-    }
-  }
-
-  {
-    std::ifstream fin(data_dir + "/samples.dat");
-    std::string name;
-    int x1;
-    double x2;
-    double x3;
-    auto current_sample = sample_data.begin();
-    while(fin>>name>>x1>>x2>>x3){
-      current_sample->name = name;
-      current_sample++;
+    while(std::getline(fin, temp)){
+      std::stringstream ss(temp);
+      std::string name;
+      int sx;
+      int sy;
+      ss>>name>>sx>>sy;
+      sample_data.push_back(internal::SampleData{name, sx, sy});
     }
   }
 
@@ -147,9 +136,9 @@ void calculate_total_upstream_areas(std::vector<internal::SampleNode> &sample_gr
   }
 }
 
-std::pair<std::vector<internal::SampleNode>, internal::NeighborsToBorderLength> faster_unmixer_internal(const std::string& data_dir){
+std::pair<std::vector<internal::SampleNode>, internal::NeighborsToBorderLength> faster_unmixer_internal(const std::string& flowdirs_filename, const std::string& sample_filename){
   // Load data
-  Array2D<d8_flowdir_t> arc_flowdirs(data_dir + "/d8.asc");
+  Array2D<d8_flowdir_t> arc_flowdirs(flowdirs_filename);
 
   // Convert raw flowdirs to RichDEM flowdirs
   auto flowdirs = Array2D<d8_flowdir_t>::make_from_template(arc_flowdirs);
@@ -159,7 +148,7 @@ std::pair<std::vector<internal::SampleNode>, internal::NeighborsToBorderLength> 
   // Get sample locations and put them in a set using flat-indexing for fast
   // look-up
   std::unordered_map<uint32_t, internal::SampleData> sample_locs;
-  for(const auto &sample: get_sample_data(data_dir)){
+  for(const auto &sample: get_sample_data(sample_filename)){
     // sample_locs[sample.x] = sample;
     sample_locs[flowdirs.xyToI(sample.x, 862-sample.y)] = sample;
   }
@@ -279,8 +268,8 @@ std::pair<std::vector<internal::SampleNode>, internal::NeighborsToBorderLength> 
   return {sample_parent_graph, adjacency_graph};
 }
 
-std::pair<SampleGraph, NeighborsToBorderLength> faster_unmixer(const std::string& data_dir){
-  const auto& [sample_parent_graph, adjacency_graph_internal] = faster_unmixer_internal(data_dir);
+std::pair<SampleGraph, NeighborsToBorderLength> faster_unmixer(const std::string& flowdirs_filename, const std::string& sample_filename){
+  const auto& [sample_parent_graph, adjacency_graph_internal] = faster_unmixer_internal(flowdirs_filename, sample_filename);
 
   NeighborsToBorderLength adjacency_graph_external;
   for(auto &x: adjacency_graph_internal){

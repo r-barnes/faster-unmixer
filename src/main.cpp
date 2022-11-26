@@ -11,7 +11,7 @@ int main(int argc, char **argv){
 
   const std::string data_dir = argv[1];
 
-  fastunmixer::faster_unmixer(data_dir);
+  fastunmixer::faster_unmixer("data/d8.asc", "data/sample_data.dat");
 
   return 0;
 }

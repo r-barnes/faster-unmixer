@@ -49,6 +49,6 @@ struct NamePairHash {
 using SampleGraph = std::unordered_map<SampleNode::name_t, SampleNode>;
 using NeighborsToBorderLength = std::unordered_map<NamePair, int64_t, NamePairHash>;
 
-std::pair<SampleGraph, NeighborsToBorderLength> faster_unmixer(const std::string& data_dir);
+std::pair<SampleGraph, NeighborsToBorderLength> faster_unmixer(const std::string& flowdirs_filename, const std::string& sample_filename);
 
 }

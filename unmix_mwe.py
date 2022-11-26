@@ -13,11 +13,11 @@ print(sys.version)
 print(os.getcwd())
 
 # Load in observations
-obs_data = pd.read_csv("data/geochem_no_dupes.dat", delimiter=" ")
+obs_data = pd.read_csv("data/sample_data.dat", delimiter=" ")
 obs_data = obs_data.drop(columns=["Bi", "S"])
 
 element = "Mg"  # Set element
-sample_network, sample_adjacency = gio.get_sample_graphs("data/")
+sample_network, sample_adjacency = gio.get_sample_graphs("data/d8.asc", "data/sample_data.dat")
 regularizer_strength = 10 ** (-2.5)
 
 # plt.figure(figsize=(15, 10))  # Visualise network
