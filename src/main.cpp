@@ -4,14 +4,15 @@
 #include <string>
 
 int main(int argc, char **argv){
-  if(argc != 2){
-    std::cerr<<"Syntax: "<<argv[0]<<" <Data dir>"<<std::endl;
+  if(argc != 3){
+    std::cerr<<"Syntax: "<<argv[0]<<" <Flowdirs> <Sample Data"<<std::endl;
     return -1;
   }
 
-  const std::string data_dir = argv[1];
+  const std::string flowdirs_filename = argv[1];
+  const std::string data_filename = argv[2];
 
-  fastunmixer::faster_unmixer("data/d8.asc", "data/sample_data.dat");
+  fastunmixer::faster_unmixer(flowdirs_filename, data_filename);
 
   return 0;
 }
