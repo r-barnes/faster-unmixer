@@ -140,7 +140,8 @@ class SampleNetwork:
             observed = ReciprocalParameter(pos=True)
             self._site_to_parameter[my_data.name] = observed
             normalised_concentration = my_data.total_flux / my_data.total_upstream_area
-            self._primary_terms.append(cp_log_ratio(normalised_concentration, observed))
+            self._primary_terms.append(normalised_concentration * observed.rp)
+            self._primary_terms.append(observed.p * normalised_concentration)
 
             if ds := nx_get_downstream(self.sample_network, sample_name):
                 downstream_data = self.sample_network.nodes[ds]["data"]
@@ -155,16 +156,18 @@ class SampleNetwork:
             # TODO: Make difference a log-ratio
             # self._regularizer_terms.append(border_length * (cp_log_ratio(a_concen,b_concen)))
             # Simple difference (not desirable)
-            self._regularizer_terms.append(border_length * (a_concen - b_concen))
+            self._regularizer_terms.append(border_length * a_concen / b_concen)
+            self._regularizer_terms.append(border_length * b_concen / a_concen)
 
     def _build_problem(self) -> None:
         assert self._primary_terms
 
         # Build the objective and constraints
-        objective = cp.norm(cp.vstack(self._primary_terms))
+        objective = cp.maximum(*self._primary_terms)
         if self._regularizer_terms:
+            rterms = [self._regularizer_strength * x for x in self._regularizer_terms]
             # TODO(alexlipp,r-barnes): Make sure that his uses the same summation strategy as the primary terms
-            objective += self._regularizer_strength * cp.norm(cp.vstack(self._regularizer_terms))
+            objective = cp.maximum(*(self._primary_terms + rterms))
         constraints = []
 
         # Create and solve the problem
@@ -216,7 +219,7 @@ class SampleNetwork:
             "scs": {"solver": cp.SCS, "verbose": True, "max_iters": 10000},
             "gurobi": {"solver": cp.GUROBI, "verbose": False, "NumericFocus": 3},
         }
-        objective_value = self._problem.solve(**solvers[solver])
+        objective_value = self._problem.solve(qcp=True)  # , **solvers[solver])
         print(
             "{color}Status = {status}\033[39m".format(
                 color="" if self._problem.status == "optimal" else "\033[91m",
