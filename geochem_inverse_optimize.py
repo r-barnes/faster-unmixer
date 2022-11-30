@@ -3,6 +3,7 @@
 import os
 import tempfile
 from collections import defaultdict
+from dataclasses import dataclass
 from typing import Dict, Final, Iterator, List, Optional, Tuple
 
 # TODO(rbarnes): Make a requirements file for conda
@@ -59,7 +60,9 @@ def cp_log_ratio(a, b: ReciprocalParameter):
     return cp.maximum(a * b.rp, b.p * cp.inv_pos(a))
 
 
-def nx_topological_sort_with_data(G: nx.DiGraph) -> Iterator[Tuple[str, pyfastunmix.SampleNode]]:
+def nx_topological_sort_with_data(
+    G: nx.DiGraph,
+) -> Iterator[Tuple[str, pyfastunmix.SampleNode]]:
     return ((x, G.nodes[x]["data"]) for x in nx.topological_sort(G))
 
 
@@ -86,7 +89,9 @@ def plot_network(G: nx.DiGraph) -> None:
     os.remove(tempname)
 
 
-def get_sample_graphs(data_dir: str) -> Tuple[nx.DiGraph, "pyfastunmix.SampleAdjacency"]:
+def get_sample_graphs(
+    data_dir: str,
+) -> Tuple[nx.DiGraph, "pyfastunmix.SampleAdjacency"]:
     # Get the graph representations of the data
     sample_network_raw, sample_adjacency = pyfastunmix.fastunmix(data_dir)
 
@@ -284,15 +289,24 @@ class SampleNetworkContinuous:
 
     # TODO: Docstrings
 
-    def __init__(self, sample_network: nx.DiGraph, area_labels: np.array, nx: int, ny: int) -> None:
+    def __init__(
+        self,
+        sample_network: nx.DiGraph,
+        area_labels: np.array,
+        nx: int,
+        ny: int,
+        use_regularization: bool = True,
+    ) -> None:
         self.sample_network = sample_network
         self.grid = InverseGrid(nx, ny, area_labels, sample_network)
         self._site_to_parameter: Dict[str, ReciprocalParameter] = {}
         self._primary_terms = []
-        self._regularizer_terms = self._build_regularizer_terms()
+        self._regularizer_terms = []
         self._regularizer_strength = cp.Parameter(nonneg=True)
         self._problem = None
         self._build_primary_terms()
+        if use_regularization:
+            self._build_regularizer_terms()
         self._build_problem()
 
     def _build_primary_terms(self) -> None:
@@ -332,23 +346,25 @@ class SampleNetworkContinuous:
                 downstream_data.total_flux += my_data.total_flux
 
     def _build_regularizer_terms(self) -> None:
-        regularizer_terms = []
         # Loop through all nodes in grid
-        for _, node in self.grid.node_coord_dict.items():
+        for node in self.grid.node_coord_dict.values():
             # If node outside of sample area it is ignored
             if node.sample_num == "NaN":
                 continue
             # If node has a neighbour to left, and this is not outside of area then we append the
             # difference to the regulariser terms.
-            if node.left_neighbour and not (node.left_neighbour.sample_num == "NaN"):
+            if node.left_neighbour and node.left_neighbour.sample_num != "NaN":
                 # TODO: Make difference a log-ratio
-                regularizer_terms.append(node.concentration - node.left_neighbour.concentration)
+                self._regularizer_terms.append(
+                    node.concentration - node.left_neighbour.concentration
+                )
             # If node has a neighbour above, and this is not outside of area then we append the
             # difference to the regulariser terms.
-            if node.top_neighbour and not (node.top_neighbour.sample_num == "NaN"):
+            if node.top_neighbour and node.top_neighbour.sample_num != "NaN":
                 # TODO: Make difference a log-ratio
-                regularizer_terms.append(node.concentration - node.top_neighbour.concentration)
-        return regularizer_terms
+                self._regularizer_terms.append(
+                    node.concentration - node.top_neighbour.concentration
+                )
 
     def _build_problem(self) -> None:
         assert self._primary_terms
@@ -371,7 +387,7 @@ class SampleNetworkContinuous:
         regularization_strength: Optional[float] = None,
         solver: str = "gurobi",
     ):
-        obs_mean = np.mean(list(observation_data.values()))
+        obs_mean: float = np.mean(list(observation_data.values()))
 
         # Reset all sites' observations
         for x in self._site_to_parameter.values():
@@ -401,7 +417,7 @@ class SampleNetworkContinuous:
             },
             "ecos": {
                 "solver": cp.ECOS,
-                "verbose": True,
+                "verbose": False,
                 "max_iters": 10000,
                 "abstol_inacc": 5e-5,
                 "reltol_inacc": 5e-5,
@@ -436,15 +452,14 @@ class SampleNetworkContinuous:
         out = np.zeros(self.grid.area_labels.shape)
         xstep = out.shape[1] / self.grid.nx
         ystep = out.shape[0] / self.grid.ny
-        out = np.zeros(self.grid.area_labels.shape)
         # Loop through inversion grid nodes
         for i in np.arange(self.grid.nx):
             for j in np.arange(self.grid.ny):
                 # indices which subdivide the areas on the base array for each inversion grid.
-                x_start = int(np.floor(i * xstep))
-                x_end = int(np.floor((i + 1) * xstep))
-                y_start = int(np.floor(j * ystep))
-                y_end = int(np.floor((j + 1) * ystep))
+                x_start = int(i * xstep)
+                x_end = int((i + 1) * xstep)
+                y_start = int((j * ystep))
+                y_end = int((j + 1) * ystep)
                 node = self.grid.node_coord_dict[(self.grid.xs[i], self.grid.ys[j])]
                 # Catch exception for nodes outside of area
                 if node.concentration:
@@ -455,27 +470,35 @@ class SampleNetworkContinuous:
         return out
 
 
+@dataclass
 class InverseNode:
     """A single node on an inversion grid.
 
+    Each `InverseNode` corresponds to a rectangle of pixels on the base raster
+    and is associated with a single sample site. The sample site which each
+    `InverseNode` is associated to is based on sub-catchment which the *centre*
+    of the rectangle lies in. For rectangles which overlap two catchments, there
+    may be some inaccuracies as each `InverseNode` can only be associated with
+    one sample site. As the resolution increases this inaccuracy decreases.
+
     Args:
-        x (float): x-coordinate for node
-        y (float): y-coordinate for node
+        x (float): x-coordinate for centre of node
+        y (float): y-coordinate for centre of node
 
     Attributes:
-        x (float): x-coordinate for node
-        y (float): y-coordinate for node
+        x (float): x-coordinate for centre of node
+        y (float): y-coordinate for centre of node
         left_neighbour (InverseNode): Pointer to left-neighbouring InverseNode
         top_neighbour (InverseNode): Pointer to vertically-above InverseNode
+        sample_num (string): Samplename associated with this node
     """
 
-    def __init__(self, x: float, y: float):
-        self.x = x
-        self.y = y
-        self.concentration = None
-        self.left_neighbour = None
-        self.top_neighbour = None
-        self.sample_num = None
+    x: float
+    y: float
+    concentration: cp.Variable = None
+    left_neighbour = None
+    top_neighbour = None
+    sample_num: str = None
 
 
 class InverseGrid:
@@ -499,34 +522,38 @@ class InverseGrid:
 
     def __init__(self, nx: int, ny: int, area_labels: np.array, sample_network: nx.DiGraph) -> None:
         self.area_labels = area_labels
-        self.nx = nx
-        self.ny = ny
+        if nx <= 0 or ny <= 0:
+            raise Exception("Warning: nx or ny cannot be negative")
         xmax = area_labels.shape[1]
         ymax = area_labels.shape[0]
+        if ny > ymax or nx > xmax:
+            raise Exception(
+                "Warning: desired resolution greater than that of DEM. \n Decrease resolution resolve"
+            )
+        self.nx = nx
+        self.ny = ny
         xstep = xmax / nx
         ystep = ymax / ny
         self.xs = np.linspace(start=xstep / 2, stop=xmax - xstep / 2, num=nx)
         self.ys = np.linspace(start=ystep / 2, stop=ymax - ystep / 2, num=ny)
         self.node_coord_dict = {}
-        self.node_sample_dict = {}
+        self.node_sample_dict = defaultdict(list)
         # Map area labels to sample numbers
         area_label_to_sample_num = {
             data["data"].label: node for node, data in sample_network.nodes(data=True)
         }
         # Loop through a (nx, ny) grid
-        for i in range(self.nx):
-            for j in range(self.ny):
-                x_coord = self.xs[i]
-                y_coord = self.ys[j]
+        for i, x_coord in enumerate(self.xs):
+            for j, y_coord in enumerate(self.ys):
                 # Create an inversion node
                 node = InverseNode(x=x_coord, y=y_coord)
                 self.node_coord_dict[(x_coord, y_coord)] = node
                 # Catch exception of left most nodes (used for roughness calculation)
-                if not i == 0:
+                if i != 0:
                     # Point towards neighbour
                     node.left_neighbour = self.node_coord_dict[(self.xs[i - 1], y_coord)]
                 # Catch exception of upper most nodes
-                if not j == 0:
+                if j != 0:
                     # Point towards neighbour (used for roughness calculation)
                     node.top_neighbour = self.node_coord_dict[(x_coord, self.ys[j - 1])]
                 # Set the sample number based off area map
@@ -534,20 +561,14 @@ class InverseGrid:
                 # Only assign variables for nodes within the sampled area
                 if label == 0:
                     node.sample_num = "NaN"
-                if not label == 0:
+                else:
                     node.sample_num = area_label_to_sample_num[label]
                     node.concentration = cp.Variable(pos=True)
-                    # If sample already has upstream areas associated with it
-                    if node.sample_num in self.node_sample_dict.keys():
-                        self.node_sample_dict[node.sample_num].append(node)
-                    # Initiate the node list for that sample
-                    else:
-                        self.node_sample_dict[node.sample_num] = []
-                        self.node_sample_dict[node.sample_num].append(node)
+                    self.node_sample_dict[node.sample_num].append(node)
         # For low density grids, sample areas can contain no nodes resulting in errors.
         # Catch this exception here
         num_keys = len(self.node_sample_dict.keys())
-        if num_keys < (len(np.unique(self.area_labels)) - 1):
+        if num_keys < len(np.unique(self.area_labels)) - 1:
             raise Exception(
                 "Warning: Not all catchments contain a node. \n \t Increase resolution to resolve"
             )
