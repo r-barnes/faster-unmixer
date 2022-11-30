@@ -108,14 +108,22 @@ def get_sample_graphs(
 
 
 class SampleNetwork:
+    # TODO Docstrings
     def __init__(
         self,
         sample_network: nx.DiGraph,
-        sample_adjacency: "pyfastunmix.SampleAdjacency",
+        sample_adjacency: "pyfastunmix.SampleAdjacency" = None,
         use_regularization: bool = True,
+        continuous: bool = False,
+        area_labels: np.array = None,
+        nx: int = None,
+        ny: int = None,
     ) -> None:
         self.sample_network = sample_network
         self.sample_adjacency = sample_adjacency
+        self.continuous: bool = continuous
+        if self.continuous:
+            self.grid = InverseGrid(nx, ny, area_labels, sample_network)
         self._site_to_parameter: Dict[str, ReciprocalParameter] = {}
         self._primary_terms = []
         self._regularizer_terms = []
@@ -134,7 +142,14 @@ class SampleNetwork:
         # Use a topological sort to ensure an upstream-to-downstream traversal
         for sample_name, my_data in nx_topological_sort_with_data(self.sample_network):
             # Set up a CVXPY parameter for each element for each node
-            my_data.my_value = cp.Variable(pos=True)
+            if self.continuous:
+                concs = [node.concentration for node in self.grid.sites_to_nodes[sample_name]]
+
+                my_data.my_value = cp.sum(concs) / len(
+                    concs
+                )  # mean conc of all inversion nodes upstream
+            else:
+                my_data.my_value = cp.Variable(pos=True)
 
             # area weighted contribution from this node
             my_data.my_flux = my_data.area * my_data.my_value
@@ -154,13 +169,36 @@ class SampleNetwork:
 
     def _build_regularizer_terms(self) -> None:
         # Build the regularizer
-        for adjacent_nodes, border_length in self.sample_adjacency.items():
-            a_concen = self.sample_network.nodes[adjacent_nodes[0]]["data"].my_value
-            b_concen = self.sample_network.nodes[adjacent_nodes[1]]["data"].my_value
-            # TODO: Make difference a log-ratio
-            # self._regularizer_terms.append(border_length * (cp_log_ratio(a_concen,b_concen)))
-            # Simple difference (not desirable)
-            self._regularizer_terms.append(border_length * (a_concen - b_concen))
+        if self.continuous:
+            # Loop through all nodes in grid
+            for node in self.grid.node_arr.flatten():
+                # If node outside of sample area it is ignored
+                if node.sample_num == "NaN":
+                    continue
+                # If node has a neighbour to left, and this is not outside of area then we append the
+                # difference to the regulariser terms.
+                if node.left_neighbour and node.left_neighbour.sample_num != "NaN":
+                    # TODO: Make difference a log-ratio
+                    self._regularizer_terms.append(
+                        node.concentration - node.left_neighbour.concentration
+                    )
+                # If node has a neighbour above, and this is not outside of area then we append the
+                # difference to the regulariser terms.
+                if node.top_neighbour and node.top_neighbour.sample_num != "NaN":
+                    # TODO: Make difference a log-ratio
+                    self._regularizer_terms.append(
+                        node.concentration - node.top_neighbour.concentration
+                    )
+        else:
+            if not self.sample_adjacency:
+                raise Exception("Sample adjacency (sample_adjacency) not provided")
+            for adjacent_nodes, border_length in self.sample_adjacency.items():
+                a_concen = self.sample_network.nodes[adjacent_nodes[0]]["data"].my_value
+                b_concen = self.sample_network.nodes[adjacent_nodes[1]]["data"].my_value
+                # TODO: Make difference a log-ratio
+                # self._regularizer_terms.append(border_length * (cp_log_ratio(a_concen,b_concen)))
+                # Simple difference (not desirable)
+                self._regularizer_terms.append(border_length * (a_concen - b_concen))
 
     def _build_problem(self) -> None:
         assert self._primary_terms
@@ -180,7 +218,7 @@ class SampleNetwork:
         observation_data: ElementData,
         regularization_strength: Optional[float] = None,
         solver: str = "gurobi",
-    ) -> Tuple[ElementData, ElementData]:
+    ):
         obs_mean: float = np.mean(list(observation_data.values()))
 
         # Reset all sites' observations
@@ -230,10 +268,14 @@ class SampleNetwork:
         print(f"Objective value = {objective_value}")
         # Return outputs
         downstream_preds = self.get_downstream_prediction_dictionary()
-        upstream_preds = self.get_upstream_prediction_dictionary()
-
         downstream_preds = {sample: value * obs_mean for sample, value in downstream_preds.items()}
-        upstream_preds = {sample: value * obs_mean for sample, value in upstream_preds.items()}
+        # If solving continuously return a map on resolution base DEM
+        if self.continuous:
+            upstream_preds = self.get_upstream_prediction_map() * obs_mean
+        # If solving discrete return a dictionary of values corresponding to each sample site
+        else:
+            upstream_preds = self.get_upstream_prediction_dictionary()
+            upstream_preds = {sample: value * obs_mean for sample, value in upstream_preds.items()}
 
         return downstream_preds, upstream_preds
 
@@ -242,11 +284,14 @@ class SampleNetwork:
         observation_data: ElementData,
         relative_error: float,
         num_repeats: int,
-        regularization_strength: float,
+        regularization_strength: Optional[float] = None,
         solver: str = "gurobi",
     ):
         predictions_down_mc = defaultdict(list)
-        predictions_up_mc = defaultdict(list)
+        if self.continuous:
+            predictions_up_mc = []
+        else:
+            predictions_up_mc = defaultdict(list)
         for _ in range(num_repeats):
             observation_data_resampled = {
                 sample: value * np.random.normal(loc=1, scale=relative_error / 100)
@@ -259,7 +304,10 @@ class SampleNetwork:
             )  # Solve problem
             for sample_name in element_pred_down.keys():
                 predictions_down_mc[sample_name] += [element_pred_down[sample_name]]
-                predictions_up_mc[sample_name] += [element_pred_upstream[sample_name]]
+                if not self.continuous:
+                    predictions_up_mc[sample_name] += [element_pred_upstream[sample_name]]
+            if self.continuous:
+                predictions_up_mc += [element_pred_upstream]
         return predictions_down_mc, predictions_up_mc
 
     def get_downstream_prediction_dictionary(self) -> ElementData:
@@ -271,6 +319,10 @@ class SampleNetwork:
         return predictions
 
     def get_upstream_prediction_dictionary(self) -> ElementData:
+        if self.continuous:
+            raise Exception(
+                "Warning: `get_upstream_prediction_dictionary` only valid for discrete networks"
+            )
         # Get the predicted upstream concentration we found
         predictions: ElementData = {}
         for sample_name, data in self.sample_network.nodes(data=True):
@@ -278,177 +330,11 @@ class SampleNetwork:
             predictions[sample_name] = data.my_value.value
         return predictions
 
-    def get_misfit(self) -> float:
-        return cp.norm(cp.vstack(self._primary_terms)).value
-
-    def get_roughness(self) -> float:
-        return cp.norm(cp.vstack(self._regularizer_terms)).value
-
-
-class SampleNetworkContinuous:
-
-    # TODO: Docstrings
-
-    def __init__(
-        self,
-        sample_network: nx.DiGraph,
-        area_labels: np.array,
-        nx: int,
-        ny: int,
-        use_regularization: bool = True,
-    ) -> None:
-        self.sample_network = sample_network
-        self.grid = InverseGrid(nx, ny, area_labels, sample_network)
-        self._site_to_parameter: Dict[str, ReciprocalParameter] = {}
-        self._primary_terms = []
-        self._regularizer_terms = []
-        self._regularizer_strength = cp.Parameter(nonneg=True)
-        self._problem = None
-        self._build_primary_terms()
-        if use_regularization:
-            self._build_regularizer_terms()
-        self._build_problem()
-
-    def _build_primary_terms(self) -> None:
-        for _, data in self.sample_network.nodes(data=True):
-            data["data"].total_flux = 0.0
-
-        # Build the main objective
-        # Use a topological sort to ensure an upstream-to-downstream traversal
-
-        # TODO: Delete this legend when labels.tif is updated
-        # Set up a number <-> string legend for upstream areas
-
-        for sample_name, my_data in nx_topological_sort_with_data(self.sample_network):
-            # # TODO: Update this to work with new labels.tif output
-            concs = [
-                node.concentration for node in self.grid.sites_to_nodes[sample_name]
-            ]  # TODO: Update above to work with new labels.tif output
-
-            my_data.my_value = cp.sum(concs) / len(
-                concs
-            )  # mean conc of all inversion nodes upstream
-
-            # area weighted contribution from this node
-            my_data.my_flux = my_data.area * my_data.my_value
-
-            # Add the flux I generate to the total flux passing through me
-            my_data.total_flux += my_data.my_flux
-
-            observed = ReciprocalParameter(pos=True)
-            self._site_to_parameter[my_data.name] = observed
-            normalised_concentration = my_data.total_flux / my_data.total_upstream_area
-            self._primary_terms.append(cp_log_ratio(normalised_concentration, observed))
-
-            if ds := nx_get_downstream(self.sample_network, sample_name):
-                downstream_data = self.sample_network.nodes[ds]["data"]
-                # Add our flux to the downstream node's
-                downstream_data.total_flux += my_data.total_flux
-
-    def _build_regularizer_terms(self) -> None:
-        # Loop through all nodes in grid
-        for node in self.grid.node_arr.flatten():
-            # If node outside of sample area it is ignored
-            if node.sample_num == "NaN":
-                continue
-            # If node has a neighbour to left, and this is not outside of area then we append the
-            # difference to the regulariser terms.
-            if node.left_neighbour and node.left_neighbour.sample_num != "NaN":
-                # TODO: Make difference a log-ratio
-                self._regularizer_terms.append(
-                    node.concentration - node.left_neighbour.concentration
-                )
-            # If node has a neighbour above, and this is not outside of area then we append the
-            # difference to the regulariser terms.
-            if node.top_neighbour and node.top_neighbour.sample_num != "NaN":
-                # TODO: Make difference a log-ratio
-                self._regularizer_terms.append(
-                    node.concentration - node.top_neighbour.concentration
-                )
-
-    def _build_problem(self) -> None:
-        assert self._primary_terms
-        if not self._regularizer_terms:
-            print("WARNING: No regularizer terms found!")
-
-        # Build the objective and constraints
-        objective = cp.norm(cp.vstack(self._primary_terms))
-        if self._regularizer_terms:
-            objective += self._regularizer_strength * cp.norm(cp.vstack(self._regularizer_terms))
-        constraints = []
-
-        # Create and solve the problem
-        print("Compiling problem...")
-        self._problem = cp.Problem(cp.Minimize(objective), constraints)
-
-    def solve(
-        self,
-        observation_data: ElementData,
-        regularization_strength: Optional[float] = None,
-        solver: str = "gurobi",
-    ):
-        obs_mean: float = np.mean(list(observation_data.values()))
-
-        # Reset all sites' observations
-        for x in self._site_to_parameter.values():
-            x.value = None
-        # Assign each observed value to a site, making sure that the site exists
-        for site, value in observation_data.items():
-            assert site in self._site_to_parameter
-            # Normalise observation by mean
-            self._site_to_parameter[site].value = value / obs_mean
-        # Ensure that all sites in the problem were assigned
-        for x in self._site_to_parameter.values():
-            assert x.value is not None
-
-        if self._regularizer_terms and not regularization_strength:
-            raise Exception("WARNING: Regularizer terms present but no strength assigned.")
-        self._regularizer_strength.value = regularization_strength
-
-        # Solvers that can handle this problem type include:
-        # ECOS, SCS
-        # See: https://www.cvxpy.org/tutorial/advanced/index.html#choosing-a-solver
-        # See: https://www.cvxpy.org/tutorial/advanced/index.html#setting-solver-options
-        solvers = {
-            # VERY SLOW, probably don't use
-            "scip": {
-                "solver": cp.SCIP,
-                "verbose": True,
-            },
-            "ecos": {
-                "solver": cp.ECOS,
-                "verbose": False,
-                "max_iters": 10000,
-                "abstol_inacc": 5e-5,
-                "reltol_inacc": 5e-5,
-                "feastol_inacc": 1e-4,
-            },
-            "scs": {"solver": cp.SCS, "verbose": True, "max_iters": 10000},
-            "gurobi": {"solver": cp.GUROBI, "verbose": False, "NumericFocus": 3},
-        }
-        objective_value = self._problem.solve(**solvers[solver])
-        print(
-            "{color}Status = {status}\033[39m".format(
-                color="" if self._problem.status == "optimal" else "\033[91m",
-                status=self._problem.status,
-            )
-        )
-        print(f"Objective value = {objective_value}")
-        # Return outputs
-        downstream_preds = self.get_downstream_prediction_dictionary()
-        downstream_preds = {sample: value * obs_mean for sample, value in downstream_preds.items()}
-        upstream_preds = self.get_upstream_prediction_map() * obs_mean
-        return downstream_preds, upstream_preds
-
-    def get_downstream_prediction_dictionary(self) -> ElementData:
-        # Print the solution we found
-        predictions: ElementData = {}
-        for sample_name, data in self.sample_network.nodes(data=True):
-            data = data["data"]
-            predictions[sample_name] = data.total_flux.value / data.total_upstream_area
-        return predictions
-
     def get_upstream_prediction_map(self) -> np.array:
+        if not self.continuous:
+            raise Exception(
+                "Warning: `get_upstream_prediction_map` only valid for continuous networks"
+            )
         out = np.zeros(self.grid.area_labels.shape)
         xstep = out.shape[1] / self.grid.nx
         ystep = out.shape[0] / self.grid.ny
@@ -468,6 +354,12 @@ class SampleNetworkContinuous:
                     val = np.nan
                 out[y_start:y_end, x_start:x_end] = val
         return out
+
+    def get_misfit(self) -> float:
+        return cp.norm(cp.vstack(self._primary_terms)).value
+
+    def get_roughness(self) -> float:
+        return cp.norm(cp.vstack(self._regularizer_terms)).value
 
 
 @dataclass
