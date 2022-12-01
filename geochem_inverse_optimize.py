@@ -3,8 +3,8 @@
 import os
 import tempfile
 from collections import defaultdict
-from dataclasses import dataclass
-from typing import Dict, Final, Iterator, List, Optional, Tuple
+from dataclasses import dataclass, field
+from typing import Dict, Final, Iterator, List, Optional, Tuple, Union
 
 # TODO(rbarnes): Make a requirements file for conda
 import cvxpy as cp
@@ -60,9 +60,7 @@ def cp_log_ratio(a, b: ReciprocalParameter):
     return cp.maximum(a * b.rp, b.p * cp.inv_pos(a))
 
 
-def nx_topological_sort_with_data(
-    G: nx.DiGraph,
-) -> Iterator[Tuple[str, pyfastunmix.SampleNode]]:
+def nx_topological_sort_with_data(G: nx.DiGraph) -> Iterator[Tuple[str, pyfastunmix.SampleNode]]:
     return ((x, G.nodes[x]["data"]) for x in nx.topological_sort(G))
 
 
@@ -112,12 +110,12 @@ class SampleNetwork:
     def __init__(
         self,
         sample_network: nx.DiGraph,
-        sample_adjacency: "pyfastunmix.SampleAdjacency" = None,
+        sample_adjacency: Optional["pyfastunmix.SampleAdjacency"] = None,
         use_regularization: bool = True,
         continuous: bool = False,
-        area_labels: np.array = None,
-        nx: int = None,
-        ny: int = None,
+        area_labels: Optional[np.array] = None,
+        nx: Optional[int] = None,
+        ny: Optional[int] = None,
     ) -> None:
         self.sample_network = sample_network
         self.sample_adjacency = sample_adjacency
@@ -131,7 +129,10 @@ class SampleNetwork:
         self._problem = None
         self._build_primary_terms()
         if use_regularization:
-            self._build_regularizer_terms()
+            if continuous:
+                self._build_regularizer_terms_continuous()
+            else:
+                self._build_regularizer_terms_discrete()
         self._build_problem()
 
     def _build_primary_terms(self) -> None:
@@ -167,38 +168,41 @@ class SampleNetwork:
                 # Add our flux to the downstream node's
                 downstream_data.total_flux += my_data.total_flux
 
-    def _build_regularizer_terms(self) -> None:
+    def _build_regularizer_terms_continuous(self) -> None:
         # Build the regularizer
-        if self.continuous:
-            # Loop through all nodes in grid
-            for node in self.grid.node_arr.flatten():
-                # If node outside of sample area it is ignored
-                if node.sample_num == "NaN":
-                    continue
-                # If node has a neighbour to left, and this is not outside of area then we append the
-                # difference to the regulariser terms.
-                if node.left_neighbour and node.left_neighbour.sample_num != "NaN":
-                    # TODO: Make difference a log-ratio
-                    self._regularizer_terms.append(
-                        node.concentration - node.left_neighbour.concentration
-                    )
-                # If node has a neighbour above, and this is not outside of area then we append the
-                # difference to the regulariser terms.
-                if node.top_neighbour and node.top_neighbour.sample_num != "NaN":
-                    # TODO: Make difference a log-ratio
-                    self._regularizer_terms.append(
-                        node.concentration - node.top_neighbour.concentration
-                    )
-        else:
-            if not self.sample_adjacency:
-                raise Exception("Sample adjacency (sample_adjacency) not provided")
-            for adjacent_nodes, border_length in self.sample_adjacency.items():
-                a_concen = self.sample_network.nodes[adjacent_nodes[0]]["data"].my_value
-                b_concen = self.sample_network.nodes[adjacent_nodes[1]]["data"].my_value
+        # Loop through all nodes in grid
+        for node in self.grid.node_arr.flatten():
+            # If node outside of sample area it is ignored
+            if node.sample_name == "NaN":
+                continue
+            # If node has a neighbour to left, and this is not outside of area then we append the
+            # difference to the regulariser terms.
+            if node.left_neighbour and node.left_neighbour.sample_name != "NaN":
                 # TODO: Make difference a log-ratio
-                # self._regularizer_terms.append(border_length * (cp_log_ratio(a_concen,b_concen)))
-                # Simple difference (not desirable)
-                self._regularizer_terms.append(border_length * (a_concen - b_concen))
+                self._regularizer_terms.append(
+                    node.concentration - node.left_neighbour.concentration
+                )
+            # If node has a neighbour above, and this is not outside of area then we append the
+            # difference to the regulariser terms.
+            if node.top_neighbour and node.top_neighbour.sample_name != "NaN":
+                # TODO: Make difference a log-ratio
+                self._regularizer_terms.append(
+                    node.concentration - node.top_neighbour.concentration
+                )
+
+    def _build_regularizer_terms_discrete(self) -> None:
+        # Build regularizer
+        if not self.sample_adjacency:
+            raise Exception("Sample adjacency (sample_adjacency) not provided")
+
+        # Loop through all samples in drainage network
+        for adjacent_nodes, border_length in self.sample_adjacency.items():
+            a_concen = self.sample_network.nodes[adjacent_nodes[0]]["data"].my_value
+            b_concen = self.sample_network.nodes[adjacent_nodes[1]]["data"].my_value
+            # TODO: Make difference a log-ratio
+            # self._regularizer_terms.append(border_length * (cp_log_ratio(a_concen,b_concen)))
+            # Simple difference (not desirable)
+            self._regularizer_terms.append(border_length * (a_concen - b_concen))
 
     def _build_problem(self) -> None:
         assert self._primary_terms
@@ -218,7 +222,7 @@ class SampleNetwork:
         observation_data: ElementData,
         regularization_strength: Optional[float] = None,
         solver: str = "gurobi",
-    ):
+    ) -> Union[Tuple[ElementData, ElementData], Tuple[ElementData, np.ndarray]]:
         obs_mean: float = np.mean(list(observation_data.values()))
 
         # Reset all sites' observations
@@ -270,6 +274,7 @@ class SampleNetwork:
         downstream_preds = self.get_downstream_prediction_dictionary()
         downstream_preds = {sample: value * obs_mean for sample, value in downstream_preds.items()}
         # If solving continuously return a map on resolution base DEM
+
         if self.continuous:
             upstream_preds = self.get_upstream_prediction_map() * obs_mean
         # If solving discrete return a dictionary of values corresponding to each sample site
@@ -288,10 +293,12 @@ class SampleNetwork:
         solver: str = "gurobi",
     ):
         predictions_down_mc = defaultdict(list)
+
         if self.continuous:
             predictions_up_mc = []
         else:
             predictions_up_mc = defaultdict(list)
+
         for _ in range(num_repeats):
             observation_data_resampled = {
                 sample: value * np.random.normal(loc=1, scale=relative_error / 100)
@@ -304,10 +311,13 @@ class SampleNetwork:
             )  # Solve problem
             for sample_name in element_pred_down.keys():
                 predictions_down_mc[sample_name] += [element_pred_down[sample_name]]
-                if not self.continuous:
-                    predictions_up_mc[sample_name] += [element_pred_upstream[sample_name]]
+
             if self.continuous:
                 predictions_up_mc += [element_pred_upstream]
+            else:
+                for sample_name in element_pred_down.keys():
+                    predictions_up_mc[sample_name] += [element_pred_upstream[sample_name]]
+
         return predictions_down_mc, predictions_up_mc
 
     def get_downstream_prediction_dictionary(self) -> ElementData:
@@ -330,7 +340,7 @@ class SampleNetwork:
             predictions[sample_name] = data.my_value.value
         return predictions
 
-    def get_upstream_prediction_map(self) -> np.array:
+    def get_upstream_prediction_map(self) -> np.ndarray:
         if not self.continuous:
             raise Exception(
                 "Warning: `get_upstream_prediction_map` only valid for continuous networks"
@@ -374,38 +384,39 @@ class InverseNode:
     one sample site. As the resolution increases this inaccuracy decreases.
 
     Attributes:
-        left_neighbour (InverseNode): Pointer to left-neighbouring InverseNode
-        top_neighbour (InverseNode): Pointer to vertically-above InverseNode
-        sample_num (string): Samplename associated with this node
+        left_neighbour : Pointer to left-neighbouring InverseNode
+        top_neighbour : Pointer to vertically-above InverseNode
+        sample_name : Samplename associated with this node
+        concentration: Value to be optimised for
     """
 
-    concentration: cp.Variable = None
-    left_neighbour = None
-    top_neighbour = None
-    sample_num: str = None
+    left_neighbour: "InverseNode"
+    top_neighbour: "InverseNode"
+    sample_name: str
+    concentration: cp.Variable = field(default_factory=lambda: cp.Variable(pos=True))
 
 
 class InverseGrid:
     """A regularly spaced rectangular grid of inverse nodes
 
     Args:
-        nx (int) : Number of columns in the grid
-        ny (int) : Number of rows in the grid
-        area_labels (np.array) : 2D array which matches upstream areas to labels
-        sample_network (nx.Digraph) : Network of sample_sites along drainage, with associated data
+        nx : Number of columns in the grid
+        ny : Number of rows in the grid
+        area_labels : 2D array which matches upstream areas to labels
+        sample_network : Network of sample_sites along drainage, with associated data
 
     Attributes:
-        nx (int) : Number of columns in the grid
-        ny (int) : Number of rows in the grid
-        area_labels (np.array): 2D array which matches pixels to sample labels
-        node_arr (np.array): List of lists (dims: (ny,xs)) containing all InverseNodes
-        sites_to_nodes {str : list of InverseNode}: Dict mapping sample numbers to list of nodes in its upstream area
+        nx : Number of columns in the grid
+        ny : Number of rows in the grid
+        area_labels : 2D array which matches pixels to sample labels
+        node_arr : List of lists (dims: (ny,xs)) containing all InverseNodes
+        sites_to_nodes : Dict mapping sample numbers to list of nodes in its upstream area
     """
 
     def __init__(self, nx: int, ny: int, area_labels: np.array, sample_network: nx.DiGraph) -> None:
         self.area_labels = area_labels
         if nx <= 0 or ny <= 0:
-            raise Exception("Warning: nx or ny cannot be negative")
+            raise Exception("Warning: nx or ny must be strictly positive")
         xmax = area_labels.shape[1]
         ymax = area_labels.shape[0]
         if ny > ymax or nx > xmax:
@@ -421,37 +432,25 @@ class InverseGrid:
         ys = np.linspace(start=ystep / 2, stop=ymax - ystep / 2, num=ny)
         self.sites_to_nodes = defaultdict(list)
         # Map area labels to sample numbers
-        area_label_to_sample_num = {
+        area_label_to_sample_name = {
             data["data"].label: node for node, data in sample_network.nodes(data=True)
         }
         self.node_arr = np.empty((ny, nx), dtype=object)
         # Loop through a (nx, ny) grid
         for i, x_coord in enumerate(xs):
             for j, y_coord in enumerate(ys):
+                # Point towards neighbours, catching uppper & left boundary node exceptions
+                left = self.node_arr[j, i - 1] if i > 0 else None
+                top = self.node_arr[j - 1, i] if j > 0 else None
+                label = self.area_labels[int(y_coord), int(x_coord)]
+                sample_name = area_label_to_sample_name[label] if label != 0 else "NaN"
                 # Create an inversion node
-                node = InverseNode()
+                node = InverseNode(left_neighbour=left, top_neighbour=top, sample_name=sample_name)
                 self.node_arr[j, i] = node
-                # Catch exception of left most nodes (used for roughness calculation)
-                if i != 0:
-                    # Point towards neighbour
-                    node.left_neighbour = self.node_arr[j, i - 1]
-                # Catch exception of upper most nodes
-                if j != 0:
-                    # Point towards neighbour (used for roughness calculation)
-                    node.top_neighbour = self.node_arr[j - 1, i]
-                # Set the sample number based off area map
-                # Sample number corresponds to sample downstream of the *centre* of the node
-                label = self.area_labels[int(y_coord), int(x_coord)]  # area label
-                # Only assign variables for nodes within the sampled area
-                if label == 0:
-                    node.sample_num = "NaN"
-                else:
-                    node.sample_num = area_label_to_sample_num[label]
-                    node.concentration = cp.Variable(pos=True)
-                    self.sites_to_nodes[node.sample_num].append(node)
+                self.sites_to_nodes[node.sample_name].append(node)
         # For low density grids, sample areas can contain no nodes resulting in errors.
         # Catch this exception here
-        num_keys = len(self.sites_to_nodes.keys())
+        num_keys = len(self.sites_to_nodes)
         if num_keys < len(np.unique(self.area_labels)) - 1:
             raise Exception(
                 "Warning: Not all catchments contain a node. \n \t Increase resolution to resolve"
