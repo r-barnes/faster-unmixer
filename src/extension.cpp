@@ -19,7 +19,7 @@ PYBIND11_MODULE(pyfastunmix, m) {
       .def_readonly("total_upstream_area", &SampleNode::total_upstream_area)
       .def_readonly("label", &SampleNode::label);
 
-  m.def("fastunmix", &faster_unmixer, "Get a graph for fast unmixing", py::arg("data_dir"));
+  m.def("fastunmix", &faster_unmixer, "Get a graph for fast unmixing", py::arg("flowdirs_filename"), py::arg("sample_filename"));
 
   m.attr("root_node_name") = root_node_name;
 }

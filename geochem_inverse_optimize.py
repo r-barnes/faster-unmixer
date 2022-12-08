@@ -91,7 +91,9 @@ def get_sample_graphs(
     data_dir: str,
 ) -> Tuple[nx.DiGraph, "pyfastunmix.SampleAdjacency"]:
     # Get the graph representations of the data
-    sample_network_raw, sample_adjacency = pyfastunmix.fastunmix(data_dir)
+    sample_network_raw, sample_adjacency = pyfastunmix.fastunmix(
+        flowdirs_filename, sample_data_filename
+    )
 
     # Convert it into a networkx graph for easy use in Python
     sample_network = nx.DiGraph()
@@ -534,9 +536,9 @@ def visualise_downstream(pred_dict, obs_dict, element: str) -> None:
 
 
 def process_data(
-    data_dir: str, data_filename: str, excluded_elements: Optional[List[str]] = None
+    flowdirs_filename: str, data_filename: str, excluded_elements: Optional[List[str]] = None
 ) -> pd.DataFrame:
-    sample_network, sample_adjacency = get_sample_graphs(data_dir)
+    sample_network, sample_adjacency = get_sample_graphs(flowdirs_filename, data_filename)
 
     plot_network(sample_network)
     obs_data = pd.read_csv(data_filename, delimiter=" ")
@@ -573,8 +575,8 @@ def process_data(
 
 def main():
     results = process_data(
-        data_dir="data/",
-        data_filename="data/geochem_no_dupes.dat",
+        flowdirs_filename="data/d8.asc",
+        data_filename="data/sample_data.dat",
         excluded_elements=["Bi", "S"],
     )
     print(results)
