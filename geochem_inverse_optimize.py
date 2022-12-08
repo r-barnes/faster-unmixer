@@ -194,18 +194,10 @@ class SampleNetwork:
                 )
 
     def _build_regularizer_terms_discrete(self) -> None:
-        # Build regularizer
-        if not self.sample_adjacency:
-            raise Exception("Sample adjacency (sample_adjacency) not provided")
-
-        # Loop through all samples in drainage network
-        for adjacent_nodes, border_length in self.sample_adjacency.items():
-            a_concen = self.sample_network.nodes[adjacent_nodes[0]]["data"].my_value
-            b_concen = self.sample_network.nodes[adjacent_nodes[1]]["data"].my_value
-            # TODO: Make difference a log-ratio
-            # self._regularizer_terms.append(border_length * (cp_log_ratio(a_concen,b_concen)))
-            # Simple difference (not desirable)
-            self._regularizer_terms.append(border_length * (a_concen - b_concen))
+        # Build regularizer                
+        for _, data in self.sample_network.nodes(data=True):
+            concen = data["data"].my_value
+            self._regularizer_terms.append(cp.maximum(concen, cp.inv_pos(concen)))
 
     def _build_problem(self) -> None:
         assert self._primary_terms
