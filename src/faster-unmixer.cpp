@@ -150,7 +150,7 @@ std::pair<std::vector<internal::SampleNode>, internal::NeighborsToBorderLength> 
   std::unordered_map<uint32_t, internal::SampleData> sample_locs;
   for(const auto &sample: get_sample_data(sample_filename)){
     // sample_locs[sample.x] = sample;
-    sample_locs[flowdirs.xyToI(sample.x, 862-sample.y)] = sample;
+    sample_locs[flowdirs.xyToI(sample.x, sample.y)] = sample;
   }
 
   // Graph of how the samples are connected together.
