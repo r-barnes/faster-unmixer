@@ -1,4 +1,5 @@
 #include "faster-unmixer.hpp"
+#include "gdal/gdal_priv.h"
 
 #include <richdem/common/Array2D.hpp>
 #include <richdem/common/grid_cell.hpp>
@@ -8,6 +9,7 @@
 #include <richdem/methods/flow_accumulation.hpp>
 #include <richdem/misc/conversion.hpp>
 
+#include <iostream>
 #include <fstream>
 #include <queue>
 #include <sstream>
@@ -145,12 +147,27 @@ std::pair<std::vector<internal::SampleNode>, internal::NeighborsToBorderLength> 
   convert_arc_flowdirs_to_richdem_d8(arc_flowdirs, flowdirs);
   flowdirs.saveGDAL("rd_flowdirs.tif");
 
+  // Get geotransform info from raster 
+    GDALAllRegister();
+    GDALDataset* raster = (GDALDataset*) GDALOpen(flowdirs_filename.c_str(), GA_ReadOnly);
+    double adfGeoTransform[6];
+    raster->GetGeoTransform(adfGeoTransform);
+    // Extract GDAL origin (upper left) + pixel widths 
+    double originX = adfGeoTransform[0];
+    double originY = adfGeoTransform[3];
+    double pixelWidth = adfGeoTransform[1];
+    double pixelHeight = adfGeoTransform[5]*-1; // gdal stores pixel heights as negative distances
+    GDALClose(raster); // close the dataset
+
   // Get sample locations and put them in a set using flat-indexing for fast
   // look-up
   std::unordered_map<uint32_t, internal::SampleData> sample_locs;
   for(const auto &sample: get_sample_data(sample_filename)){
-    // sample_locs[sample.x] = sample;
-    sample_locs[flowdirs.xyToI(sample.x, 862-sample.y)] = sample;
+
+    // Get x, y indices relative to upper left
+    int x_ul = (sample.x-originX)/pixelWidth;
+    int y_ul = ((originY-sample.y)/pixelHeight) - 1;
+    sample_locs[flowdirs.xyToI(x_ul, y_ul)] = sample;
   }
 
   // Graph of how the samples are connected together.
