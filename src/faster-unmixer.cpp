@@ -9,7 +9,6 @@
 #include <richdem/methods/flow_accumulation.hpp>
 #include <richdem/misc/conversion.hpp>
 
-#include <iostream>
 #include <fstream>
 #include <queue>
 #include <sstream>
@@ -166,7 +165,7 @@ std::pair<std::vector<internal::SampleNode>, internal::NeighborsToBorderLength> 
 
     // Get x, y indices relative to upper left
     int x_ul = (sample.x-originX)/pixelWidth;
-    int y_ul = ((originY-sample.y)/pixelHeight) - 1;
+    int y_ul = ((originY-sample.y)/pixelHeight);
     sample_locs[flowdirs.xyToI(x_ul, y_ul)] = sample;
   }
 
