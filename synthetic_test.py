@@ -7,16 +7,29 @@ max_val = 1000  # maximum value for synthetic input
 rel_err = 5  # 5% relative error
 
 # Load in Drainage Network
-sample_network, sample_adjacency = gio.get_sample_graphs("data/d8.asc", "data/sample_data.dat")
-# Get upstream basins
+sample_network, sample_adjacency = gio.get_sample_graphs(
+    flowdirs_filename="data/synthetic_topo_d8.asc",
+    sample_data_filename="data/synthetic_samples.dat",
+)  # Get upstream basins
+
+plt.figure(figsize=(15, 10))  # Visualise network
+plt.title("Sample Network")
+gio.plot_network(sample_network)
+
 areas = gio.get_unique_upstream_areas(sample_network)
 
 # Pick random values to set each basin
 synth_upst_concs = {sample: max_val * np.random.rand() for sample in areas.keys()}
+
+# Pick random export rates to set for each sub-basin
+input_export_rates = {sample: np.random.rand() for sample in areas.keys()}
+
 # Generate synthetic upstream concentration map
 upst_conc_map = gio.get_upstream_concentration_map(areas, synth_upst_concs)
 # Predict concentration at downstream observation points
-mixed_synth_down, _ = gio.mix_downstream(sample_network, areas, upst_conc_map)
+mixed_synth_down, _ = gio.mix_downstream(
+    sample_network, areas, upst_conc_map, export_rates=input_export_rates
+)
 ## Add noise
 # mixed_synth_down = {
 #     sample: value * np.random.normal(loc=1, scale=rel_err / 100)
@@ -25,7 +38,9 @@ mixed_synth_down, _ = gio.mix_downstream(sample_network, areas, upst_conc_map)
 # Set up problem
 problem = gio.SampleNetwork(sample_network, sample_adjacency, use_regularization=False)
 # Solve problem using synthetic downstream observations as input
-recovered_down, recovered_up = problem.solve(mixed_synth_down, solver="ecos")
+recovered_down, recovered_up = problem.solve(
+    mixed_synth_down, solver="ecos", export_rates=input_export_rates
+)
 # Generate recovered upstream concentration map
 recovered_conc_map = gio.get_upstream_concentration_map(areas, recovered_up)
 
