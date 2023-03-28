@@ -20,8 +20,8 @@ struct SampleNode {
   // Sample name
   name_t name;
   // Sample location
-  int64_t x = std::numeric_limits<int64_t>::min();
-  int64_t y = std::numeric_limits<int64_t>::min();
+  float x = std::numeric_limits<float>::min();
+  float y = std::numeric_limits<float>::min();
   // Sample's water flows downstream into this node
   name_t downstream_node;
   // Sample receives water from these upstream nodes

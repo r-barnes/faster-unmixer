@@ -8,6 +8,7 @@
 #include <richdem/flowmet/d8_flowdirs.hpp>
 #include <richdem/methods/flow_accumulation.hpp>
 #include <richdem/misc/conversion.hpp>
+#include <iostream>
 
 #include <fstream>
 #include <queue>
@@ -31,8 +32,8 @@ struct PairHash {
 
 struct SampleData {
   std::string name = unset_node_name;
-  int64_t x = std::numeric_limits<int64_t>::min();
-  int64_t y = std::numeric_limits<int64_t>::min();
+  float x = std::numeric_limits<float>::min();
+  float y = std::numeric_limits<float>::min();
 };
 
 // Each SampleNode correspond to a sample, specified by a name and (x,y)
@@ -87,8 +88,8 @@ std::vector<internal::SampleData> get_sample_data(const std::string &sample_file
     while(std::getline(fin, temp)){
       std::stringstream ss(temp);
       std::string name;
-      int sx;
-      int sy;
+      float sx;
+      float sy;
       ss>>name>>sx>>sy;
       sample_data.push_back(internal::SampleData{name, sx, sy});
     }
@@ -155,7 +156,7 @@ std::pair<std::vector<internal::SampleNode>, internal::NeighborsToBorderLength> 
     double originX = adfGeoTransform[0];
     double originY = adfGeoTransform[3];
     double pixelWidth = adfGeoTransform[1];
-    double pixelHeight = adfGeoTransform[5]*-1; // gdal stores pixel heights as negative distances
+    double pixelHeight = adfGeoTransform[5];
     GDALClose(raster); // close the dataset
 
   // Get sample locations and put them in a set using flat-indexing for fast
@@ -164,8 +165,8 @@ std::pair<std::vector<internal::SampleNode>, internal::NeighborsToBorderLength> 
   for(const auto &sample: get_sample_data(sample_filename)){
 
     // Get x, y indices relative to upper left
-    int x_ul = (sample.x-originX)/pixelWidth;
-    int y_ul = ((originY-sample.y)/pixelHeight);
+    int x_ul = round((sample.x-originX)/pixelWidth);
+    int y_ul = round((sample.y-originY)/pixelHeight);
     sample_locs[flowdirs.xyToI(x_ul, y_ul)] = sample;
   }
 
