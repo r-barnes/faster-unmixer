@@ -135,7 +135,7 @@ class SampleNetwork:
             self.grid = InverseGrid(nx, ny, area_labels, sample_network)
         self._site_to_observation: Dict[str, ReciprocalParameter] = {}
         self._site_to_export_rate: Dict[str, cp.Parameter] = {}
-        self._site_to_inverse_total_flux: Dict[str, cp.Parameter] = {}
+        self._site_to_total_flux: Dict[str, ReciprocalParameter] = {}
         self._primary_terms = []
         self._regularizer_terms = []
         self._constraints = []
@@ -168,6 +168,7 @@ class SampleNetwork:
                 my_data.my_tracer_value = cp.Variable(pos=True)
 
             # Export rate of total material (e.g., erosion rate, run-off)
+            # Value is set at runtime
             my_data.my_export_rate = cp.Parameter(pos=True)
             self._site_to_export_rate[my_data.name] = my_data.my_export_rate
 
@@ -175,16 +176,16 @@ class SampleNetwork:
             my_data.my_flux = my_data.area * my_data.my_export_rate
             # Add the flux I generate to the total flux passing through me
             my_data.my_total_flux += my_data.my_flux
+            # Set up a ReciprocalParameter for total flux to make problem DPP.
+            # Value of this parameter is set at solve time as it
+            # depends on export rate parameter values
+            total_flux_dummy = ReciprocalParameter(pos=True)
+            self._site_to_total_flux[my_data.name] = total_flux_dummy
+
             # Area weighted contribution of *tracer* from this node
             my_data.my_tracer_flux = my_data.my_flux * my_data.my_tracer_value
             # Add the *tracer* flux I generate to the total flux of *tracer* passing through me
             my_data.my_total_tracer_flux += my_data.my_tracer_flux
-
-            # total_flux for a given parameter set is variable free but its inverse is not DPP.
-            # To make it DPP we set up a dummy parameter for the inverse. We set the value of this paramter
-            # at solve time, alongside the export rate and observation parameters.
-            inverse_total_flux_dummy = cp.Parameter(pos=True)
-            self._site_to_inverse_total_flux[my_data.name] = inverse_total_flux_dummy
 
             # Set up a dummy (parameter free) variable that encodes the total *tracer* flux at the node.
             # This ensures that the problem is DPP.
@@ -194,12 +195,13 @@ class SampleNetwork:
 
             # Set up a dummy (parameter free) variable for normalised concentration.
             # This ensures that the problem is DPP.
-            normalised_concentration = total_tracer_flux_dummy * inverse_total_flux_dummy
+            normalised_concentration = total_tracer_flux_dummy * total_flux_dummy.rp
             normalised_concentration_dummy = cp.Variable(pos=True)
             # We add a constraint that this must equal the parameter encoded `normalised_concentration`
             self._constraints.append(normalised_concentration_dummy == normalised_concentration)
 
             # Set up a parameter for the observation at node
+            # Value is set at solve time
             observed = ReciprocalParameter(pos=True)
             self._site_to_observation[my_data.name] = observed
 
@@ -294,17 +296,17 @@ class SampleNetwork:
         for x in self._site_to_export_rate.values():
             assert x.value is not None
 
-    def _set_inverse_total_flux_parameters(self):
-        """Resets inverse total flux dummy parameters and sets their value according to input observations"""
+    def _set_total_flux_parameters(self):
+        """Resets total flux dummy parameters and sets their value according to input observations"""
         # Reset all sites' inverse total flux parameters
-        for x in self._site_to_inverse_total_flux.values():
+        for x in self._site_to_total_flux.values():
             x.value = None
 
         for site, data in self.sample_network.nodes(data=True):
-            assert site in self._site_to_inverse_total_flux
-            self._site_to_inverse_total_flux[site].value = (1 / data["data"].my_total_flux).value
+            assert site in self._site_to_total_flux
+            self._site_to_total_flux[site].value = data["data"].my_total_flux.value
 
-        for x in self._site_to_inverse_total_flux.values():
+        for x in self._site_to_total_flux.values():
             assert x.value is not None
 
     def solve(
@@ -316,7 +318,7 @@ class SampleNetwork:
     ) -> Union[Tuple[ElementData, ElementData], Tuple[ElementData, np.ndarray]]:
         self._set_observation_parameters(observation_data=observation_data)
         self._set_export_rate_parameters(export_rates=export_rates)
-        self._set_inverse_total_flux_parameters()
+        self._set_total_flux_parameters()
 
         if self._regularizer_terms and not regularization_strength:
             raise Exception("WARNING: Regularizer terms present but no strength assigned.")
