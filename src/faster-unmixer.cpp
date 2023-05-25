@@ -1,5 +1,4 @@
 #include "faster-unmixer.hpp"
-#include "gdal/gdal_priv.h"
 
 #include <richdem/common/Array2D.hpp>
 #include <richdem/common/grid_cell.hpp>
@@ -32,8 +31,8 @@ struct PairHash {
 
 struct SampleData {
   std::string name = unset_node_name;
-  float x = std::numeric_limits<float>::min();
-  float y = std::numeric_limits<float>::min();
+  double x = std::numeric_limits<double>::quiet_NaN();
+  double y = std::numeric_limits<double>::quiet_NaN();
 };
 
 // Each SampleNode correspond to a sample, specified by a name and (x,y)
@@ -88,8 +87,8 @@ std::vector<internal::SampleData> get_sample_data(const std::string &sample_file
     while(std::getline(fin, temp)){
       std::stringstream ss(temp);
       std::string name;
-      float sx;
-      float sy;
+      double sx;
+      double sy;
       ss>>name>>sx>>sy;
       sample_data.push_back(internal::SampleData{name, sx, sy});
     }
@@ -148,16 +147,11 @@ std::pair<std::vector<internal::SampleNode>, internal::NeighborsToBorderLength> 
   flowdirs.saveGDAL("rd_flowdirs.tif");
 
   // Get geotransform info from raster 
-    GDALAllRegister();
-    GDALDataset* raster = (GDALDataset*) GDALOpen(flowdirs_filename.c_str(), GA_ReadOnly);
-    double adfGeoTransform[6];
-    raster->GetGeoTransform(adfGeoTransform);
     // Extract GDAL origin (upper left) + pixel widths 
-    double originX = adfGeoTransform[0];
-    double originY = adfGeoTransform[3];
-    double pixelWidth = adfGeoTransform[1];
-    double pixelHeight = adfGeoTransform[5];
-    GDALClose(raster); // close the dataset
+    const auto originX = flowdirs.geotransform[0];
+    const auto originY = flowdirs.geotransform[3];
+    const auto pixelWidth = flowdirs.geotransform[1];
+    const auto pixelHeight = flowdirs.geotransform[5];
 
   // Get sample locations and put them in a set using flat-indexing for fast
   // look-up
@@ -165,8 +159,9 @@ std::pair<std::vector<internal::SampleNode>, internal::NeighborsToBorderLength> 
   for(const auto &sample: get_sample_data(sample_filename)){
 
     // Get x, y indices relative to upper left
-    int x_ul = round((sample.x-originX)/pixelWidth);
-    int y_ul = round((sample.y-originY)/pixelHeight);
+    const auto x_ul = static_cast<int64_t>(std::round((sample.x-originX)/pixelWidth));
+    const auto y_ul = static_cast<int64_t>(std::round((sample.y-originY)/pixelHeight));
+
     sample_locs[flowdirs.xyToI(x_ul, y_ul)] = sample;
   }
 
