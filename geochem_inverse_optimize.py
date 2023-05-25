@@ -66,7 +66,9 @@ def geo_mean(x: List[float]) -> float:
     return np.exp(np.log(x).mean())
 
 
-def nx_topological_sort_with_data(G: nx.DiGraph) -> Iterator[Tuple[str, pyfastunmix.SampleNode]]:
+def nx_topological_sort_with_data(
+    G: nx.DiGraph,
+) -> Iterator[Tuple[str, pyfastunmix.SampleNode]]:
     return ((x, G.nodes[x]["data"]) for x in nx.topological_sort(G))
 
 
@@ -255,7 +257,6 @@ class SampleNetwork:
         # Create and solve the problem
         print("Compiling problem...")
         self._problem = cp.Problem(cp.Minimize(objective), constraints)
-        assert self._problem.is_dcp()
         assert self._problem.is_dcp(dpp=True)
 
     def _set_observation_parameters(self, observation_data: ElementData) -> None:
@@ -269,6 +270,7 @@ class SampleNetwork:
             assert site in self._site_to_observation
             # Normalise observation by mean
             self._site_to_observation[site].value = value / obs_mean
+
         # Ensure that all sites in the problem were assigned
         for x in self._site_to_observation.values():
             assert x.value is not None
@@ -278,6 +280,7 @@ class SampleNetwork:
         # Reset all sites' export rates
         for x in self._site_to_export_rate.values():
             x.value = None
+
         # If export_rates provided, assign each one to a site, making sure that the site exists
         if export_rates:
             for site, value in export_rates.items():
@@ -311,7 +314,6 @@ class SampleNetwork:
         regularization_strength: Optional[float] = None,
         solver: str = "gurobi",
     ) -> Union[Tuple[ElementData, ElementData], Tuple[ElementData, np.ndarray]]:
-
         self._set_observation_parameters(observation_data=observation_data)
         self._set_export_rate_parameters(export_rates=export_rates)
         self._set_inverse_total_flux_parameters()
@@ -564,7 +566,8 @@ def mix_downstream(
         export_rates: Dictionary of export rates for each sub-catchment. Defaults to equal export rate in each sub-catchment.
     Returns:
         mixed_downstream_pred: Dictionary containing predicted downstream mixed concentration at each sample sites
-        mixed_upstream_pred: Dictionary containing the average concentration of `concentration_map` in each sub-basin"""
+        mixed_upstream_pred: Dictionary containing the average concentration of `concentration_map` in each sub-basin
+    """
     mixed_downstream_pred: ElementData = {}
     mixed_upstream_pred: ElementData = {}
 
@@ -573,12 +576,10 @@ def mix_downstream(
         data["data"].my_total_flux = 0.0
 
     for sample_name, my_data in nx_topological_sort_with_data(sample_network):
-        if export_rates:
-            # If provided, set export rates from user input
-            my_data.my_export_rate = export_rates[sample_name]
-        else:
-            # Else default to equal rate (absolute value is arbitrary)
-            my_data.my_export_rate = 1
+        # If provided, set export rates from user input
+        # else default to equal rate (absolute value is arbitrary)
+
+        my_data.my_export_rate = export_rates[sample_name] if export_rates else 1
 
         my_data.my_tracer_value = np.mean(concentration_map[areas[sample_name]])
         # area weighted total contribution of material from this node
@@ -671,7 +672,9 @@ def visualise_downstream(pred_dict, obs_dict, element: str) -> None:
 
 
 def process_data(
-    flowdirs_filename: str, data_filename: str, excluded_elements: Optional[List[str]] = None
+    flowdirs_filename: str,
+    data_filename: str,
+    excluded_elements: Optional[List[str]] = None,
 ) -> pd.DataFrame:
     sample_network, sample_adjacency = get_sample_graphs(flowdirs_filename, data_filename)
 
