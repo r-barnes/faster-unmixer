@@ -21,6 +21,7 @@ SAMPLE_CODE_COL_NAME: Final[str] = "Sample.Code"
 ELEMENT_LIST: Final[List[str]] = ["H", "He", "Li", "Be", "B", "C", "N", "O", "F", "Ne", "Na", "Mg", "Al", "Si", "P", "S", "Cl", "Ar", "K", "Ca", "Sc", "Ti", "V", "Cr", "Mn", "Fe", "Co", "Ni", "Cu", "Zn", "Ga", "Ge", "As", "Se", "Br", "Kr", "Rb", "Sr", "Y", "Zr", "Nb", "Mo", "Tc", "Ru", "Rh", "Pd", "Ag", "Cd", "In", "Sn", "Sb", "Te", "I", "Xe", "Cs", "Ba", "La", "Ce", "Pr", "Nd", "Pm", "Sm", "Eu", "Gd", "Tb", "Dy", "Ho", "Er", "Tm", "Yb", "Lu", "Hf", "Ta", "W", "Re", "Os", "Ir", "Pt", "Au", "Hg", "Tl", "Pb", "Bi", "Po", "At", "Rn", "Fr", "Ra", "Ac", "Th", "Pa", "U", "Np", "Pu", "Am", "Cm", "Bk", "Cf", "Es", "Fm", "Md", "No", "Lr", "Rf", "Db", "Sg", "Bh", "Hs", "Mt", "Ds", "Rg", "Cn", "Uut", "Fl", "Uup", "Lv", "Uus", "Uuo"]  # fmt: skip
 
 ElementData = Dict[str, float]
+ExportRateData = Dict[str, float]
 
 
 class ReciprocalParameter:
@@ -65,7 +66,9 @@ def geo_mean(x: List[float]) -> float:
     return np.exp(np.log(x).mean())
 
 
-def nx_topological_sort_with_data(G: nx.DiGraph) -> Iterator[Tuple[str, pyfastunmix.SampleNode]]:
+def nx_topological_sort_with_data(
+    G: nx.DiGraph,
+) -> Iterator[Tuple[str, pyfastunmix.SampleNode]]:
     return ((x, G.nodes[x]["data"]) for x in nx.topological_sort(G))
 
 
@@ -130,9 +133,12 @@ class SampleNetwork:
         self.continuous: bool = continuous
         if self.continuous:
             self.grid = InverseGrid(nx, ny, area_labels, sample_network)
-        self._site_to_parameter: Dict[str, ReciprocalParameter] = {}
+        self._site_to_observation: Dict[str, ReciprocalParameter] = {}
+        self._site_to_export_rate: Dict[str, cp.Parameter] = {}
+        self._site_to_total_flux: Dict[str, ReciprocalParameter] = {}
         self._primary_terms = []
         self._regularizer_terms = []
+        self._constraints = []
         self._regularizer_strength = cp.Parameter(nonneg=True)
         self._problem = None
         self._build_primary_terms()
@@ -145,7 +151,8 @@ class SampleNetwork:
 
     def _build_primary_terms(self) -> None:
         for _, data in self.sample_network.nodes(data=True):
-            data["data"].total_flux = 0.0
+            data["data"].my_total_tracer_flux = 0.0
+            data["data"].my_total_flux = 0.0
 
         # Build the main objective
         # Use a topological sort to ensure an upstream-to-downstream traversal
@@ -154,27 +161,60 @@ class SampleNetwork:
             if self.continuous:
                 concs = [node.concentration for node in self.grid.sites_to_nodes[sample_name]]
 
-                my_data.my_value = cp.sum(concs) / len(
+                my_data.my_tracer_value = cp.sum(concs) / len(
                     concs
                 )  # mean conc of all inversion nodes upstream
             else:
-                my_data.my_value = cp.Variable(pos=True)
+                my_data.my_tracer_value = cp.Variable(pos=True)
 
-            # area weighted contribution from this node
-            my_data.my_flux = my_data.area * my_data.my_value
+            # Export rate of total material (e.g., erosion rate, run-off)
+            # Value is set at runtime
+            my_data.my_export_rate = cp.Parameter(pos=True)
+            self._site_to_export_rate[my_data.name] = my_data.my_export_rate
 
+            # Area weighted total contribution of material from this node
+            my_data.my_flux = my_data.area * my_data.my_export_rate
             # Add the flux I generate to the total flux passing through me
-            my_data.total_flux += my_data.my_flux
+            my_data.my_total_flux += my_data.my_flux
+            # Set up a ReciprocalParameter for total flux to make problem DPP.
+            # Value of this parameter is set at solve time as it
+            # depends on export rate parameter values
+            total_flux_dummy = ReciprocalParameter(pos=True)
+            self._site_to_total_flux[my_data.name] = total_flux_dummy
 
+            # Area weighted contribution of *tracer* from this node
+            my_data.my_tracer_flux = my_data.my_flux * my_data.my_tracer_value
+            # Add the *tracer* flux I generate to the total flux of *tracer* passing through me
+            my_data.my_total_tracer_flux += my_data.my_tracer_flux
+
+            # Set up a dummy (parameter free) variable that encodes the total *tracer* flux at the node.
+            # This ensures that the problem is DPP.
+            total_tracer_flux_dummy = cp.Variable(pos=True)
+            # We add a constraint that this must equal the parameter encoded `total_tracer_flux`
+            self._constraints.append(total_tracer_flux_dummy == my_data.my_total_tracer_flux)
+
+            # Set up a dummy (parameter free) variable for normalised concentration.
+            # This ensures that the problem is DPP.
+            normalised_concentration = total_tracer_flux_dummy * total_flux_dummy.rp
+            normalised_concentration_dummy = cp.Variable(pos=True)
+            # We add a constraint that this must equal the parameter encoded `normalised_concentration`
+            self._constraints.append(normalised_concentration_dummy == normalised_concentration)
+
+            # Set up a parameter for the observation at node
+            # Value is set at solve time
             observed = ReciprocalParameter(pos=True)
-            self._site_to_parameter[my_data.name] = observed
-            normalised_concentration = my_data.total_flux / my_data.total_upstream_area
-            self._primary_terms.append(cp_log_ratio(normalised_concentration, observed))
+            self._site_to_observation[my_data.name] = observed
+
+            # Calculate misfit and append to primary terms in objective function
+            misfit = cp_log_ratio(normalised_concentration_dummy, observed)
+            self._primary_terms.append(misfit)
 
             if ds := nx_get_downstream(self.sample_network, sample_name):
                 downstream_data = self.sample_network.nodes[ds]["data"]
-                # Add our flux to the downstream node's
-                downstream_data.total_flux += my_data.total_flux
+                # Add our flux to downstream node's
+                downstream_data.my_total_flux += my_data.my_total_flux
+                # Add our *tracer* flux to the downstream node's
+                downstream_data.my_total_tracer_flux += my_data.my_total_tracer_flux
 
     def _build_regularizer_terms_continuous(self) -> None:
         # Build the regularizer
@@ -201,7 +241,7 @@ class SampleNetwork:
     def _build_regularizer_terms_discrete(self) -> None:
         # Build regularizer
         for _, data in self.sample_network.nodes(data=True):
-            concen = data["data"].my_value
+            concen = data["data"].my_tracer_value
             # Data is divided by the mean as part of .solve method, thus the mean value is simply 1.
             # To calculate (convex) relative differences of observation x from the mean we thus
             # calculate max(x/1,1/x) = max(x,1/x)
@@ -214,31 +254,71 @@ class SampleNetwork:
         objective = cp.norm(cp.vstack(self._primary_terms))
         if self._regularizer_terms:
             objective += self._regularizer_strength * cp.norm(cp.vstack(self._regularizer_terms))
-        constraints = []
+        constraints = self._constraints
 
         # Create and solve the problem
         print("Compiling problem...")
         self._problem = cp.Problem(cp.Minimize(objective), constraints)
+        assert self._problem.is_dcp(dpp=True)
+
+    def _set_observation_parameters(self, observation_data: ElementData) -> None:
+        """Resets observation parameters and sets their value according to input observations"""
+        obs_mean: float = geo_mean(list(observation_data.values()))
+        # Reset all sites' observations
+        for x in self._site_to_observation.values():
+            x.value = None
+        # Assign each observed value to a site, making sure that the site exists
+        for site, value in observation_data.items():
+            assert site in self._site_to_observation
+            # Normalise observation by mean
+            self._site_to_observation[site].value = value / obs_mean
+
+        # Ensure that all sites in the problem were assigned
+        for x in self._site_to_observation.values():
+            assert x.value is not None
+
+    def _set_export_rate_parameters(self, export_rates: Optional[ExportRateData] = None):
+        """Resets export rate parameters and sets their value according to input observations"""
+        # Reset all sites' export rates
+        for x in self._site_to_export_rate.values():
+            x.value = None
+
+        # If export_rates provided, assign each one to a site, making sure that the site exists
+        if export_rates:
+            for site, value in export_rates.items():
+                assert site in self._site_to_export_rate
+                self._site_to_export_rate[site].value = value
+        # Else, export rate is set to default value of 1
+        else:
+            for x in self._site_to_export_rate.values():
+                x.value = 1
+        # Ensure that all sites in the problem have a prod rate assigned
+        for x in self._site_to_export_rate.values():
+            assert x.value is not None
+
+    def _set_total_flux_parameters(self):
+        """Resets total flux dummy parameters and sets their value according to input observations"""
+        # Reset all sites' inverse total flux parameters
+        for x in self._site_to_total_flux.values():
+            x.value = None
+
+        for site, data in self.sample_network.nodes(data=True):
+            assert site in self._site_to_total_flux
+            self._site_to_total_flux[site].value = data["data"].my_total_flux.value
+
+        for x in self._site_to_total_flux.values():
+            assert x.value is not None
 
     def solve(
         self,
         observation_data: ElementData,
+        export_rates: Optional[ExportRateData] = None,
         regularization_strength: Optional[float] = None,
         solver: str = "gurobi",
     ) -> Union[Tuple[ElementData, ElementData], Tuple[ElementData, np.ndarray]]:
-        obs_mean: float = geo_mean(list(observation_data.values()))
-
-        # Reset all sites' observations
-        for x in self._site_to_parameter.values():
-            x.value = None
-        # Assign each observed value to a site, making sure that the site exists
-        for site, value in observation_data.items():
-            assert site in self._site_to_parameter
-            # Normalise observation by mean
-            self._site_to_parameter[site].value = value / obs_mean
-        # Ensure that all sites in the problem were assigned
-        for x in self._site_to_parameter.values():
-            assert x.value is not None
+        self._set_observation_parameters(observation_data=observation_data)
+        self._set_export_rate_parameters(export_rates=export_rates)
+        self._set_total_flux_parameters()
 
         if self._regularizer_terms and not regularization_strength:
             raise Exception("WARNING: Regularizer terms present but no strength assigned.")
@@ -273,7 +353,10 @@ class SampleNetwork:
             )
         )
         print(f"Objective value = {objective_value}")
+
         # Return outputs
+        obs_mean: float = geo_mean(list(observation_data.values()))
+
         downstream_preds = self.get_downstream_prediction_dictionary()
         downstream_preds = {sample: value * obs_mean for sample, value in downstream_preds.items()}
         # If solving continuously return a map on resolution base DEM
@@ -328,7 +411,7 @@ class SampleNetwork:
         predictions: ElementData = {}
         for sample_name, data in self.sample_network.nodes(data=True):
             data = data["data"]
-            predictions[sample_name] = data.total_flux.value / data.total_upstream_area
+            predictions[sample_name] = data.my_total_tracer_flux.value / data.my_total_flux.value
         return predictions
 
     def get_upstream_prediction_dictionary(self) -> ElementData:
@@ -340,7 +423,7 @@ class SampleNetwork:
         predictions: ElementData = {}
         for sample_name, data in self.sample_network.nodes(data=True):
             data = data["data"]
-            predictions[sample_name] = data.my_value.value
+            predictions[sample_name] = data.my_tracer_value.value
         return predictions
 
     def get_upstream_prediction_map(self) -> np.ndarray:
@@ -471,7 +554,10 @@ def get_element_obs(element: str, obs_data: pd.DataFrame) -> ElementData:
 
 
 def mix_downstream(
-    sample_network: nx.DiGraph, areas: Dict[str, np.ndarray], concentration_map: np.ndarray
+    sample_network: nx.DiGraph,
+    areas: Dict[str, np.ndarray],
+    concentration_map: np.ndarray,
+    export_rates: Optional[ExportRateData] = None,
 ) -> Tuple[ElementData, ElementData]:
     """Mixes a given concentration map along drainage, predicting the downstream concentration at sample sites
     Args:
@@ -479,28 +565,44 @@ def mix_downstream(
         areas: A dictionary mapping sample names to sub-basins (see `get_unique_upstream_areas`)
         concentration_map: A 2D map of concentrations which is to be mixed along drainage. Must have same dimensions
         as base flow-direction map/DEM
+        export_rates: Dictionary of export rates for each sub-catchment. Defaults to equal export rate in each sub-catchment.
     Returns:
         mixed_downstream_pred: Dictionary containing predicted downstream mixed concentration at each sample sites
-        mixed_upstream_pred: Dictionary containing the average concentration of `concentration_map` in each sub-basin"""
+        mixed_upstream_pred: Dictionary containing the average concentration of `concentration_map` in each sub-basin
+    """
     mixed_downstream_pred: ElementData = {}
     mixed_upstream_pred: ElementData = {}
 
     for _, data in sample_network.nodes(data=True):
-        data["data"].total_flux = 0.0
+        data["data"].my_total_tracer_flux = 0.0
+        data["data"].my_total_flux = 0.0
 
     for sample_name, my_data in nx_topological_sort_with_data(sample_network):
-        my_data.my_value = np.mean(concentration_map[areas[sample_name]])
-        # area weighted contribution from this node
-        my_data.my_flux = my_data.area * my_data.my_value
+        # If provided, set export rates from user input
+        # else default to equal rate (absolute value is arbitrary)
+
+        my_data.my_export_rate = export_rates[sample_name] if export_rates else 1
+
+        my_data.my_tracer_value = np.mean(concentration_map[areas[sample_name]])
+        # area weighted total contribution of material from this node
+        my_data.my_flux = my_data.area * my_data.my_export_rate
         # Add the flux I generate to the total flux passing through me
-        my_data.total_flux += my_data.my_flux
-        normalised = my_data.total_flux / my_data.total_upstream_area
+        my_data.my_total_flux += my_data.my_flux
+
+        # area weighted contribution of *tracer* from this node
+        my_data.my_tracer_flux = my_data.my_flux * my_data.my_tracer_value
+        # Add the *tracer* flux I generate to the total flux of *tracer* passing through me
+        my_data.my_total_tracer_flux += my_data.my_tracer_flux
+
+        normalised = my_data.my_total_tracer_flux / my_data.my_total_flux
         mixed_downstream_pred[sample_name] = normalised
-        mixed_upstream_pred[sample_name] = my_data.my_value
+        mixed_upstream_pred[sample_name] = my_data.my_tracer_value
         if ds := nx_get_downstream(sample_network, sample_name):
             downstream_data = sample_network.nodes[ds]["data"]
-            # Add our flux to the downstream node's
-            downstream_data.total_flux += my_data.total_flux
+            # Add our flux to downstream node's
+            downstream_data.my_total_flux += my_data.my_total_flux
+            # Add our *tracer* flux to the downstream node's
+            downstream_data.my_total_tracer_flux += my_data.my_total_tracer_flux
 
     return mixed_downstream_pred, mixed_upstream_pred
 
@@ -572,7 +674,9 @@ def visualise_downstream(pred_dict, obs_dict, element: str) -> None:
 
 
 def process_data(
-    flowdirs_filename: str, data_filename: str, excluded_elements: Optional[List[str]] = None
+    flowdirs_filename: str,
+    data_filename: str,
+    excluded_elements: Optional[List[str]] = None,
 ) -> pd.DataFrame:
     sample_network, sample_adjacency = get_sample_graphs(flowdirs_filename, data_filename)
 

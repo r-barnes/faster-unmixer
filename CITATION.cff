@@ -1,0 +1,12 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+- family-names: "Lipp"
+  given-names: "Alexander"
+- family-names: "Barnes"
+  given-names: "Richard"
+  orcid: "https://orcid.org/0000-0002-0204-6040"
+title: "Identifying tracer and pollutant sources in drainage networks from point observations using an efficient convex unmixing scheme"
+doi: 10.5194/egusphere-egu23-5368
+date-released: 2023-04-14
+url: "https://github.com/r-barnes/faster-unmixer/"
