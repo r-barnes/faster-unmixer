@@ -1,6 +1,6 @@
-# Unmixing river sediments for the elemental geochemistry of their source regions
+# Unmixing nested observed concentrations in river networks for source regions
 
-This notebook provides a minimum working example (`fast_inversion_mwe.ipynb`) demonstrating how to invert river sediment geochemistry for the composition of their source regions.
+This repository implements an efficient solution to the unmixing of nested concentrations in a (river) network using convex optimisation. The method is described in our [EGU abstract](https://meetingorganizer.copernicus.org/EGU23/EGU23-5368.html) 
 
 Unlike the previously published method [(Lipp et al. 2021)](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2021GC009838) this is significantlyfaster. This speed-up is achieved through using Powell's algorithm instead of the Nelder-Mead to optimise the objective function and by parallelising the flow accumulation. We also initialise the solution closer to the solution than if just a constant initial composition is used but this has just a marginal impact on the runtime.
 
@@ -36,7 +36,18 @@ make
 cd ..
 ```
 
-Run the optimization problem:
+Run the example optimisation problem:
 ```
-python3 run.py
+python3 unmix_mwe.py
 ```
+
+If this returns: `ModuleNotFoundError: No module named 'pyfastunmix'`, you may need to add the `build/` directory to your path using: 
+```
+export PYTHONPATH=$PYTHONPATH:build/
+```
+
+## Cite 
+
+If you use this please cite: 
+
+Lipp, A. and Barnes, R.: Identifying tracer and pollutant sources in drainage networks from point observations using an efficient convex unmixing scheme, EGU General Assembly 2023, Vienna, Austria, 24–28 Apr 2023, EGU23-5368, [DOI: 10.5194/egusphere-egu23-5368](https://doi.org/10.5194/egusphere-egu23-5368), 2023.

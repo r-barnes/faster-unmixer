@@ -1,0 +1,28 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: >-
+  Identifying tracer and pollutant sources in drainage
+  networks from point observations using an efficient convex
+  unmixing scheme
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - given-names: Lipp
+    family-names: Alexander
+  - given-names: Barnes
+    family-names: Richard
+    email: rijard.barnes@gmail.com
+    orcid: 'https://orcid.org/0000-0002-0204-6040'
+identifiers:
+  - type: doi
+    value: 10.5194/egusphere-egu23-5368
+    description: EGU abstract
+repository-code: 'https://github.com/r-barnes/faster-unmixer/'
+abstract: >-
+  This repository implements an efficient solution to the
+  unmixing of nested concentrations in a (river) network
+  using convex optimisation.
