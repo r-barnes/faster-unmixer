@@ -360,13 +360,13 @@ class SampleNetwork:
             "gurobi": {"solver": cp.GUROBI, "verbose": False, "NumericFocus": 3},
         }
         objective_value = self._problem.solve(**solvers[solver])
-        print(
-            "{color}Status = {status}\033[39m".format(
-                color="" if self._problem.status == "optimal" else "\033[91m",
-                status=self._problem.status,
-            )
-        )
-        print(f"Objective value = {objective_value}")
+        # print(
+        #     "{color}Status = {status}\033[39m".format(
+        #         color="" if self._problem.status == "optimal" else "\033[91m",
+        #         status=self._problem.status,
+        #     )
+        # )
+        # print(f"Objective value = {objective_value}")
 
         # Return outputs
         obs_mean: float = geo_mean(list(observation_data.values()))

@@ -10,6 +10,7 @@ Functions:
 - add(a: Composition, b: Composition) -> Composition: Performs the addition operation a + bon two Compositions *on the Simplex*
 - subtract(a: Composition, b: Composition) -> Composition: Performs the subtraction operation a - b on two Compositions *on the Simplex*
 - multiply(a: Composition, b: Composition) -> Composition: Performs the scalar multiplication operation a*k between Composition and a scalar on the Simplex*
+- composition_from_clr(Dict[str, float]) -> Composition: loads a Composition from a dictionary of clr values
 
 """
 
@@ -151,6 +152,11 @@ class Composition:
             product *= value
 
         return math.pow(product, 1 / count)
+
+
+def composition_from_clr(clr: Dict[str, float]) -> Composition:
+    """Generates a composition from a Dictionary of clr values"""
+    return Composition(Composition.inverse_clr_transform(clr))
 
 
 def aitchison_distance(a: Composition, b: Composition) -> float:
