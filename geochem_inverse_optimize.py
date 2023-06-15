@@ -13,7 +13,6 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 import pandas as pd
-
 import pyfastunmix
 
 NO_DOWNSTREAM: Final[int] = 0
@@ -81,6 +80,20 @@ def nx_get_downstream(G: nx.DiGraph, x: str) -> Optional[str]:
         return s[0]
     else:
         raise Exception("More than one downstream neighbour!")
+
+
+def calculate_normalised_areas(sample_network: nx.DiGraph) -> None:
+    """
+    Adds a new attribute `rltv_area` to node containing the upstream area of each node
+    divided by the mean upstream area of the nodes in the network. This improves numerical
+    accuracy, and as everything is divided by a constant value does not affect the results.
+    """
+
+    areas = [node["data"].area for node in sample_network.nodes.values()]
+    mean_area = np.mean(areas)
+
+    for node in sample_network.nodes.values():
+        node["data"].rltv_area = node["data"].area / mean_area
 
 
 def plot_network(G: nx.DiGraph) -> None:
@@ -154,6 +167,9 @@ class SampleNetwork:
             data["data"].my_total_tracer_flux = 0.0
             data["data"].my_total_flux = 0.0
 
+        # Normalises node area by total mean to improve numerical accuracy
+        calculate_normalised_areas(sample_network=self.sample_network)
+
         # Build the main objective
         # Use a topological sort to ensure an upstream-to-downstream traversal
         for sample_name, my_data in nx_topological_sort_with_data(self.sample_network):
@@ -173,7 +189,7 @@ class SampleNetwork:
             self._site_to_export_rate[my_data.name] = my_data.my_export_rate
 
             # Area weighted total contribution of material from this node
-            my_data.my_flux = my_data.area * my_data.my_export_rate
+            my_data.my_flux = my_data.rltv_area * my_data.my_export_rate
             # Add the flux I generate to the total flux passing through me
             my_data.my_total_flux += my_data.my_flux
             # Set up a ReciprocalParameter for total flux to make problem DPP.
