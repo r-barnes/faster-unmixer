@@ -157,23 +157,30 @@ class ExportRateOptimizer:
         for observations in self._tracer_observations.values():
             _, _ = self._inverse_problem.solve(
                 observations,
-                solver="ecos",
+                solver="scs",
                 export_rates=self._export_rates.composition,
                 regularization_strength=self.source_regulariser,
             )
             # Get the squared relative difference. Subtract n_samps so that minimum is 0.
-        misfit += ((self._inverse_problem.get_misfit()) ** 2) - len(self._nodes)
+        misfit += self._inverse_problem.get_misfit()
         return misfit
 
     @property
     def export_rates(self) -> Composition:
-        """dd
+        """
         Get the current export rates.
 
         Returns:
             Composition: The optimized export rates.
         """
         return self._export_rates
+
+    @export_rates.setter
+    def export_rates(self, new_export_rates: Composition) -> None:
+        """
+        Set the export rates.
+        """
+        self._export_rates = new_export_rates
 
     def optimise(self) -> None:
         """
