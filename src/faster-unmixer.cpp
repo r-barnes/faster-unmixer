@@ -146,6 +146,17 @@ std::pair<std::vector<internal::SampleNode>, internal::NeighborsToBorderLength> 
   convert_arc_flowdirs_to_richdem_d8(arc_flowdirs, flowdirs);
   flowdirs.saveGDAL("rd_flowdirs.tif");
 
+  // Check that boundary conditions are correct
+  iterate_2d(flowdirs, [&](const auto x, const auto y){
+    // if x,y is on the boundary and the node is not a sink raise an exception:
+    if(
+      (x==0 || y==0 || x==flowdirs.width()-1 || y==flowdirs.height()-1) &&
+      flowdirs(x,y)!=NO_FLOW
+    ){
+      throw std::runtime_error("Boundary condition violated at (" + std::to_string(x) + ", " + std::to_string(y) + ")! Expected a sink node, but got a flow direction!");
+    }
+  });
+
   // Get geotransform info from raster
   // Extract GDAL origin (upper left) + pixel widths
   const auto originX = flowdirs.geotransform[0];
@@ -310,5 +321,4 @@ std::pair<SampleGraph, NeighborsToBorderLength> faster_unmixer(const std::string
 
   return {nodes, adjacency_graph_external};
 }
-
 }
