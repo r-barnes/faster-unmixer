@@ -2,13 +2,13 @@
 
 This repository implements an efficient solution to the unmixing of nested concentrations in a (river) network using convex optimisation. The method is described in our [EGU abstract](https://meetingorganizer.copernicus.org/EGU23/EGU23-5368.html) 
 
-## Data input assumptions 
+## Data input assumptions
 
 The algorithm requires:
 
-1) A GDAL readable raster of D8 flow directions. We use the ESRI/Arc D8 convention of representing directions with increasing powers of 2 (i.e., 1, 2, 4, 8 etc.) with sink pixels indicated by 0. 
+1) A GDAL readable raster of D8 flow directions. We use the ESRI/Arc D8 convention of representing directions with increasing powers of 2 (i.e., 1, 2, 4, 8 etc.) with sink pixels indicated by 0. We assume that every cell in the domain eventually flows into a sink node within the domain (or is itself a sink node). This assumption requires that **every boundary pixel is set to be a sink**.
 
-2) A tab-delimited file which contains the names, locations and geochemical observations at the sample sites. Sample names are given in column `Sample.Code`, and the x and y-coordinates of the sample sites in columns `x_coordinate` and `y_coordinate`. The x and y-coordinates of the sample sites should correspond to the *upper left* corner of pixels, in the same reference system as the D8 raster. It is assumed that the sample sites have already been manually aligned onto the drainage grid.  Subsequent columns contain the name of a given tracer (e.g., `Mg`) and their concentrations (arbitrary units). 
+2) A tab-delimited file which contains the names, locations and geochemical observations at the sample sites. Sample names are given in column `Sample.Code`, and the x and y-coordinates of the sample sites in columns `x_coordinate` and `y_coordinate`. The x and y-coordinates of the sample sites need to be in the same reference system as the D8 raster. It is assumed that the sample sites have already been manually aligned onto the drainage network.  Subsequent columns contain the name of a given tracer (e.g., `Mg`) and their concentrations (arbitrary units).
 
 Example datasets are given in `data/d8.asc` and `sample_data.dat`.
 
