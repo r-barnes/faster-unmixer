@@ -321,4 +321,5 @@ std::pair<SampleGraph, NeighborsToBorderLength> faster_unmixer(const std::string
 
   return {nodes, adjacency_graph_external};
 }
+
 }
