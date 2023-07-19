@@ -6,7 +6,7 @@ import numpy as np
 from scipy.optimize import minimize
 
 from composition import Composition, composition_from_clr
-from geochem_inverse_optimize import ElementData, SampleNetwork
+from sample_network_unmix import ElementData, SampleNetworkUnmixer
 
 MultiElementData = Dict[str, ElementData]
 """Type for suite of multiple tracers"""
@@ -75,7 +75,7 @@ class ExportRateOptimizer:
 
     def __init__(
         self,
-        source_optimiser: SampleNetwork,
+        source_optimiser: SampleNetworkUnmixer,
         observations: MultiElementData,
         export_regulariser_strength: float,
         source_regulariser_strength: float,
@@ -84,7 +84,7 @@ class ExportRateOptimizer:
         Initialize the ExportRateOptimizer.
 
         Args:
-            source_optimiser (SampleNetwork): The nested sample network of conservative well mixed tracers.
+            source_optimiser (SampleNetworkUnmixer): The nested sample network of conservative well mixed tracers.
             observations (MultiElementData): The tracer observations.
             regulariser_strength (float): The strength of the export rate regularizer.
             source_regulariser_strength (float): The strength of the export rate regulariser.
@@ -99,9 +99,9 @@ class ExportRateOptimizer:
         if set(source_optimiser.sample_network.nodes) != set(
             observations[next(iter(observations))]
         ):
-            raise ValueError("Nodes in SampleNetwork do not match nodes in observations")
+            raise ValueError("Nodes in SampleNetworkUnmixer do not match nodes in observations")
 
-        self._inverse_problem: SampleNetwork = source_optimiser
+        self._inverse_problem: SampleNetworkUnmixer = source_optimiser
         self._nodes: List[str] = list(self._inverse_problem.sample_network.nodes)
         self._tracer_observations: MultiElementData = observations
         self.regulariser_strength = export_regulariser_strength
