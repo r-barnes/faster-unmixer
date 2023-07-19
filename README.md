@@ -2,9 +2,7 @@
 
 This repository implements an efficient solution to the unmixing of nested concentrations in a (river) network using convex optimisation. The method is described in our [EGU abstract](https://meetingorganizer.copernicus.org/EGU23/EGU23-5368.html) 
 
-Unlike the previously published method [(Lipp et al. 2021)](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2021GC009838) this is significantlyfaster. This speed-up is achieved through using Powell's algorithm instead of the Nelder-Mead to optimise the objective function and by parallelising the flow accumulation. We also initialise the solution closer to the solution than if just a constant initial composition is used but this has just a marginal impact on the runtime.
-
-# Data input assumptions 
+## Data input assumptions 
 
 The algorithm requires:
 
@@ -15,7 +13,9 @@ The algorithm requires:
 Example datasets are given in `data/d8.asc` and `sample_data.dat`.
 
 
-# Compiling
+## Compiling 
+
+The following assumes a UNIX operating systems. If running Windows OS you will need to install a [Linux subsystem](https://learn.microsoft.com/en-us/windows/wsl/about). 
 
 Check out submodules:
 ```
@@ -36,14 +36,32 @@ make
 cd ..
 ```
 
-Run the example optimisation problem:
+A conda environment file (`requirements.yaml`) is provided containing the python dependencies. A conda environment entitled `unmixing` can be generated from it using `conda env create -f requirements.yaml`.    
+
+### Testing compilation
+
+To test if installation has happened correctly run the unit test:
 ```
-python3 unmix_mwe.py
+python3 synthetic_test.py
 ```
 
-If this returns: `ModuleNotFoundError: No module named 'pyfastunmix'`, you may need to add the `build/` directory to your path using: 
+This script aims to recover a randomly generated synthetic upstream dataset. If installed correctly this should print `SUCCESS: All tests passed!` to console. If it returns: `ModuleNotFoundError: No module named 'pyfastunmix'`, you may need to add the `build/` directory to your path using: 
 ```
 export PYTHONPATH=$PYTHONPATH:build/
+```
+or by adding: 
+```
+import sys
+sys.path.append('build')
+``` 
+to the header of any `python` scripts.
+
+## Usage
+
+Two example scripts are given which are minimum working examples of unmixing a network of samples (solving discretely for each sub-basin and continuously over a grid), using the example datasets described above:
+```
+python3 unmix_mwe.py
+python3 unmix_continuous_mwe.py
 ```
 
 ## Cite 

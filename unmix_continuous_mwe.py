@@ -1,16 +1,29 @@
-# Preamble
+#!/usr/bin/env python3
+
+"""
+This script is a minimum working example for how to unmix the downstream observations for a specific element seeking a smooth continuous solution.
+It solves for the smoothest continusous upstream concentration map of the element that fits the observations downstream.
+
+It loads a sample network graph and observations from data files, sets constants such as the element and regularization strength, and visualizes the network.
+Next, it builds the continuous optimization problem by creating a sample network, specifying area labels, and setting other parameters.
+The script performs a sweep of different regularization strengths for the problem and visualizes the results.
+Then, it solves the problem using a specified solver and regularization strength, obtaining predicted downstream concentrations and an upstream concentration map.
+The script visualizes the upstream concentration map and the predicted downstream concentrations for the specified element.
+"""
+
+
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 
-import geochem_inverse_optimize as gio
+# Import sample network unmixer module.
+# This module contains the SampleNetworkUnmixer class, which builds the optimization problem and solves it.
+import sample_network_unmix as snu
 
 # Constants
 element = "Mg"  # Set element
-regularizer_strength = 10 ** (-1)
 
 # Load sample network
-sample_network, sample_adjacency = gio.get_sample_graphs(
+sample_network, _ = snu.get_sample_graphs(
     flowdirs_filename="data/d8.asc",
     sample_data_filename="data/sample_data.dat",
 )
@@ -22,15 +35,19 @@ obs_data = obs_data.drop(columns=["Bi", "S"])
 area_map = plt.imread("labels.tif")[:, :, 0]
 
 print("Building problem...")
-problem = gio.SampleNetwork(
+problem = snu.SampleNetworkUnmixer(
     sample_network=sample_network, ny=60, nx=60, area_labels=area_map, continuous=True
 )
-element_data = gio.get_element_obs(
+element_data = snu.get_element_obs(
     element, obs_data
 )  # Return dictionary of {sample_name:concentration}
 
-gio.plot_sweep_of_regularizer_strength(problem, element_data, -5, -1, 11)
+snu.plot_sweep_of_regularizer_strength(problem, element_data, -2, 2, 11)
 
+regularizer_strength = 10 ** (-0.8)
+print(
+    f"Chose regularization strength of {regularizer_strength} at 'elbow' of misfit-roughness curve."
+)
 print("Solving problem...")
 down_dict, upstream_map = problem.solve(
     element_data, regularization_strength=regularizer_strength, solver="ecos"
@@ -41,22 +58,5 @@ plt.imshow(upstream_map)
 plt.colorbar()
 plt.show()
 
-gio.visualise_downstream(pred_dict=down_dict, obs_dict=element_data, element=element)
-plt.show()
-
-
-relative_error = 10  #%
-print("Calculating uncertainties with monte-carlo sampling")
-element_pred_down_mc, element_pred_up_mc = problem.solve_montecarlo(
-    element_data,
-    relative_error=relative_error,
-    num_repeats=50,
-    regularization_strength=regularizer_strength,
-    solver="ecos",
-)
-stacked_upstream = np.dstack(element_pred_up_mc)
-stds = np.std(stacked_upstream, axis=2)
-plt.imshow(stds)
-plt.title("Upstream Uncertainties")
-plt.colorbar()
+snu.visualise_downstream(pred_dict=down_dict, obs_dict=element_data, element=element)
 plt.show()

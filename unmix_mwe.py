@@ -1,17 +1,29 @@
-# Preamble
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
-from matplotlib.colors import LogNorm
+#!/usr/bin/env python3
 
-import geochem_inverse_optimize as gio
+"""
+This script is a minimum working example for how to unmix the downstream observations for a specific element.
+It treats each sub-basin defined by a sample as a discrete variable, and solves for the upstream concentrations of the element in each sub-basin.
+
+It loads a sample network graph and observations from data files, visualizes the network, and builds the optimization problem.
+Then, it performs a sweep of different regularization strengths for the problem and visualizes the results.
+Next, it solves the problem using a specified solver and regularization strength, obtaining predicted downstream and upstream concentrations.
+The script also calculates unique upstream areas for each basin in the network and generates an upstream concentration map based on the predictions.
+Finally, it visualizes the predicted downstream concentrations and the upstream concentration map for the specified element (default: Mg).
+"""
+
+
+import matplotlib.pyplot as plt
+import pandas as pd
+
+# Import sample network unmixer module.
+# This module contains the SampleNetworkUnmixer class, which builds the optimization problem and solves it.
+import sample_network_unmix as snu
 
 # Constants
 element = "Mg"  # Set element
-regularizer_strength = 10 ** (-2.5)
 
 # Load sample network
-sample_network, sample_adjacency = gio.get_sample_graphs(
+sample_network, _ = snu.get_sample_graphs(
     flowdirs_filename="data/d8.asc",
     sample_data_filename="data/sample_data.dat",
 )
@@ -20,50 +32,39 @@ sample_network, sample_adjacency = gio.get_sample_graphs(
 obs_data = pd.read_csv("data/sample_data.dat", delimiter=" ")
 obs_data = obs_data.drop(columns=["Bi", "S"])
 
-# plt.figure(figsize=(15, 10))  # Visualise network
-# gio.plot_network(sample_network)
-# plt.show()
+plt.figure(figsize=(15, 10))  # Visualise network
+snu.plot_network(sample_network)
+plt.show()
 print("Building problem...")
-problem = gio.SampleNetwork(sample_network=sample_network, sample_adjacency=sample_adjacency)
+problem = snu.SampleNetworkUnmixer(sample_network=sample_network)
 
 
-element_data = gio.get_element_obs(
+element_data = snu.get_element_obs(
     element, obs_data
 )  # Return dictionary of {sample_name:concentration}
 
-gio.plot_sweep_of_regularizer_strength(problem, element_data, -5, -1, 11)
+snu.plot_sweep_of_regularizer_strength(problem, element_data, -5, -1, 11)
+regularizer_strength = 10 ** (-3.0)
+print(
+    f"Chose regularization strength of {regularizer_strength} at 'elbow' of misfit-roughness curve."
+)
 
 print("Solving problem...")
 element_pred_down, element_pred_upstream = problem.solve(
     element_data, solver="ecos", regularization_strength=10 ** (-3)
 )
 
-relative_error = 10  #%
-print("Calculating uncertainties with monte-carlo sampling")
-element_pred_down_mc, element_pred_up_mc = problem.solve_montecarlo(
-    element_data,
-    relative_error=relative_error,
-    num_repeats=50,
-    regularization_strength=regularizer_strength,
-    solver="ecos",
-)
-
-downstream_uncertainties = {}
-for sample, values in element_pred_down_mc.items():
-    downstream_uncertainties[sample] = np.std(values)
-
-# print(downstream_uncertainties)
-
-area_dict = gio.get_unique_upstream_areas(sample_network)  # Extract areas for each basin
-upstream_map = gio.get_upstream_concentration_map(
+area_dict = snu.get_unique_upstream_areas(sample_network)  # Extract areas for each basin
+upstream_map = snu.get_upstream_concentration_map(
     area_dict, element_pred_upstream
 )  # Assign to upstream preds
 
 # Visualise outputs downstream
-gio.visualise_downstream(pred_dict=element_pred_down, obs_dict=element_data, element=element)
+snu.visualise_downstream(pred_dict=element_pred_down, obs_dict=element_data, element=element)
 plt.show()
 # Visualise outputs upstream
 plt.imshow(upstream_map)
 cb = plt.colorbar()
 cb.set_label(element + "concentration mg/kg")
+plt.title("Upstream Concentration Map")
 plt.show()
