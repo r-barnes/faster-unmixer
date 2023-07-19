@@ -545,7 +545,7 @@ class SampleNetworkUnmixer:
                 "reltol_inacc": 5e-5,
                 "feastol_inacc": 1e-4,
             },
-            "scs": {"solver": cp.SCS, "verbose": True, "max_iters": 10000},
+            "scs": {"solver": cp.SCS, "verbose": False, "max_iters": 10000},
             "gurobi": {"solver": cp.GUROBI, "verbose": False, "NumericFocus": 3},
         }
         objective_value = self._problem.solve(**solvers[solver])

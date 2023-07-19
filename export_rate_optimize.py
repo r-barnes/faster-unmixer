@@ -3,13 +3,27 @@ from typing import Any, Dict, List, Tuple
 
 import networkx as nx
 import numpy as np
+import pandas as pd
+from cvxpy.error import SolverError
 from scipy.optimize import minimize
 
 from composition import Composition, composition_from_clr
-from sample_network_unmix import ElementData, SampleNetworkUnmixer
+from sample_network_unmix import (ElementData, SampleNetworkUnmixer,
+                                  get_element_obs)
 
 MultiElementData = Dict[str, ElementData]
 """Type for suite of multiple tracers"""
+
+
+def get_multielementdata(obs_data: pd.DataFrame, elements: List[str]) -> MultiElementData:
+    """
+    Returns dictionary of {element: {sample_name: concentration}}
+    """
+    multielement_data = {}
+    for element in elements:
+        element_data = get_element_obs(element, obs_data)
+        multielement_data[element] = element_data
+    return multielement_data
 
 
 def dict_to_array(dictionary: Dict[str, Any]) -> Tuple[np.ndarray, List[str]]:
@@ -155,14 +169,23 @@ class ExportRateOptimizer:
         """
         misfit = 0
         for observations in self._tracer_observations.values():
-            _, _ = self._inverse_problem.solve(
-                observations,
-                solver="scs",
-                export_rates=self._export_rates.composition,
-                regularization_strength=self.source_regulariser,
-            )
+            try:
+                _, _ = self._inverse_problem.solve(
+                    observations,
+                    solver="ecos",
+                    export_rates=self._export_rates.composition,
+                    regularization_strength=self.source_regulariser,
+                )
+            except SolverError:
+                print("\n ECOS solver failed, trying again with SCS solver... \n")
+                _, _ = self._inverse_problem.solve(
+                    observations,
+                    solver="scs",
+                    export_rates=self._export_rates.composition,
+                    regularization_strength=self.source_regulariser,
+                )
             # Get the squared relative difference. Subtract n_samps so that minimum is 0.
-        misfit += self._inverse_problem.get_misfit()
+            misfit += self._inverse_problem.get_misfit()
         return misfit
 
     @property
