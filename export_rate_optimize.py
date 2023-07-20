@@ -74,8 +74,19 @@ class ExportRateOptimizer:
         and inverts to return upstream concentration for each tracer and the
         best fitting export rate (e.g., sediment generation, run-off) of each node.
 
+        The export rates are treated as a *composition* because only their relative values are relevant
+        for the mixing procedure. i.e., multiplying them by a constant value has no affect on the resulting
+        geochemistry downstream. Consequently, we import a "Composition" class I have developed (e.g., Aitchison 1984).
+        This class allows both a composition to be concurrently represented as a set of raw components (normalised to a total of 1)
+        as well as a clr vector (i.e., a vector of log ratios). We strictly speaking optimise the clr components, but the
+        compositional components are automatically updated and returned as well.
+
+        We use Powell's derivative free method to optimise but could also use a gradient based method (e.g., BFGS) if gradients are
+        calculated (e.g., using the cvxpy gradients attributes).
+
         Attributes:
-            regulariser_strength (float): The strength of the regularizer.
+            export_regulariser_strength (float): The strength of the regularizer for the *export rates*.
+            source_regulariser_strength (float): The strength of the regularizer for every upstream concentration inversion.
 
         Property methods:
             data_misfit (float): The global misfit given tracer observations and export rates
@@ -125,7 +136,8 @@ class ExportRateOptimizer:
 
     def _calculate_objective(self, trial_export_rate_clrs: np.ndarray) -> float:
         """
-        Compute the objective function value for a set of trial export rates.
+        Compute the objective function value for a set of trial export rates. This is just a wrapper function
+        of the data-misfit and model-size functions so that it can be optimised using scipy.optimize.minimize
 
         Args:
             trial_export_rate_clrs (np.ndarray): Trial export rates represented as an array of clr parameters.
@@ -168,6 +180,7 @@ class ExportRateOptimizer:
             float: The data misfit value.
         """
         misfit = 0
+        # Loop through every tracer observation (e.g., different geochemical elements) and solve for the upstream concentrations given the current export rates
         for observations in self._tracer_observations.values():
             try:
                 _, _ = self._inverse_problem.solve(
@@ -184,7 +197,7 @@ class ExportRateOptimizer:
                     export_rates=self._export_rates.composition,
                     regularization_strength=self.source_regulariser,
                 )
-            # Get the squared relative difference. Subtract n_samps so that minimum is 0.
+            # Append the misfit to the total misfit
             misfit += self._inverse_problem.get_misfit()
         return misfit
 
