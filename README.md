@@ -34,9 +34,10 @@ A conda environment file (`requirements.yaml`) is provided containing the python
 
 ### Testing compilation
 
-To test if installation has happened correctly run the unit test:
+To check if installation has happened correctly run the synthetic test script:
+
 ```
-python3 synthetic_test.py
+python3 tests/synthetic_test.py
 ```
 
 
