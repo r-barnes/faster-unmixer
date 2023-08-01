@@ -3,7 +3,11 @@ from glob import glob
 from typing import List
 
 import setuptools
-from pybind11.setup_helpers import Pybind11Extension
+
+try:
+    from pybind11.setup_helpers import Pybind11Extension
+except ImportError:
+    from setuptools import Extension as Pybind11Extension
 
 __version__ = "0.0.1"
 
