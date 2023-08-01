@@ -5,7 +5,18 @@ import tempfile
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Dict, Final, Iterator, List, Optional, Tuple, TypeVar, Union, DefaultDict
+from typing import (
+    Any,
+    Dict,
+    Final,
+    Iterator,
+    List,
+    Optional,
+    Tuple,
+    TypeVar,
+    Union,
+    DefaultDict,
+)
 
 # TODO(rbarnes): Make a requirements file for conda
 import cvxpy as cp
@@ -41,6 +52,10 @@ def not_none(x: Optional[T]) -> T:
 
 @dataclass
 class SampleNode:
+    """
+    A class to represent a sample node in a Sample Network.
+    """
+
     name: str
     x: int
     y: int
@@ -74,6 +89,9 @@ class SampleNode:
 
 
 def native_sample_graph_to_python(g: Dict[str, fn.NativeSampleNode]) -> Dict[str, SampleNode]:
+    """
+    Convert a graph of native SampleNodes to a graph of Python SampleNodes.
+    """
     newg: Dict[str, SampleNode] = {}
     for k, v in g.items():
         newg[k] = SampleNode.from_native(v)
@@ -107,6 +125,10 @@ logger: logging.Logger = logging.getLogger()
 
 @dataclass
 class FunmixerSolution:
+    """
+    A class to hold the results of a SampleNetworkUnmixer run.
+    """
+
     objective_value: float
     solver_name: str
     total_time: float
@@ -121,10 +143,10 @@ def geo_mean(x: List[float]) -> float:
     Returns the geometric mean of a list of numbers.
 
     Args:
-        x (List[float]): The list of numbers.
+        x: The list of numbers.
 
     Returns:
-        float: The geometric mean of the numbers in the list.
+        The geometric mean of the numbers in the list.
     """
     # pyre-fixme[6]: For 1st argument expected `Union[bytes, complex, float, int,
     #  generic, str]` but got `List[float]`.
@@ -138,10 +160,10 @@ def nx_topological_sort_with_data(
     Returns a topological sort of the graph, with the data of each node.
 
     Args:
-        G (nx.DiGraph): The graph.
+        G: The graph.
 
     Returns:
-        Iterator[Tuple[str, fn.SampleNode]]: An iterator yielding tuples of node name and node data.
+        An iterator yielding tuples of node name and node data.
     """
     # pyre-fixme[16]: `None` has no attribute `__iter__`.
     return ((x, G.nodes[x]["data"]) for x in nx.topological_sort(G))
@@ -152,11 +174,11 @@ def nx_get_downstream(G: nx.DiGraph, x: str) -> Optional[str]:
     Gets the downstream child from a node with only one child.
 
     Args:
-        G (nx.DiGraph): The graph.
-        x (str): The node.
+        G: The graph.
+        x: The node.
 
     Returns:
-        Optional[str]: The downstream child node name, or None if there is no downstream child or multiple downstream children.
+        The downstream child node name, or None if there is no downstream child or multiple downstream children.
 
     Raises:
         Exception: If there is more than one downstream neighbor.
@@ -175,7 +197,7 @@ def plot_network(G: nx.DiGraph) -> None:
     Plots a networkx graph using graphviz.
 
     Args:
-        G (nx.DiGraph): The graph to plot.
+        G: The graph to plot.
     """
     ag = nx.nx_agraph.to_agraph(G)
     ag.layout(prog="dot")
@@ -278,7 +300,7 @@ class SampleNetworkUnmixer:
         of all nodes in the network.
 
         Args:
-            sample_network (nx.DiGraph): The sample network graph.
+            sample_network: The sample network graph.
 
         Note:
             The method calculates the mean upstream area of all nodes in the network and assigns a normalized relative area (`rltv_area`)
@@ -417,7 +439,7 @@ class SampleNetworkUnmixer:
         Reset and set the export rate parameters according to input export rates.
 
         Args:
-            export_rate_data (ElementData): The export rate data.
+            export_rate_data: The export rate data.
         """
         # Reset all sites' export rates
         for x in self._site_to_export_rate.values():
@@ -456,7 +478,7 @@ class SampleNetworkUnmixer:
         observation_data: ElementData,
         export_rates: Optional[ExportRateData] = None,
         regularization_strength: Optional[float] = None,
-        solver: str = "gurobi",
+        solver: str = "ecos",
     ) -> FunmixerSolution:
         """
         Solves the optimization problem.
@@ -469,7 +491,7 @@ class SampleNetworkUnmixer:
             observation_data: The observed data for each element.
             export_rates: The export rates for each element. If not provided these are all set to 1.
             regularization_strength: The strength of the regularization term
-            solver: The solver to use for solving the optimization problem
+            solver: The solver to use for solving the optimization problem (default is ecos)
 
         Returns:
             A tuple containing the downstream and upstream predictions. The downstream and upstream predictions
@@ -550,14 +572,13 @@ class SampleNetworkUnmixer:
         in the downstream and upstream predictions.
 
         Args:
-            observation_data (ElementData): The observed data for each element.
-            relative_error (float): The *relative* error as a percentage to use for resampling the observation data.
-            num_repeats (int): The number of times to repeat the Monte Carlo simulation.
-            regularization_strength (Optional[float]): The strength of the regularization term (default: None).
-            solver (str): The solver to use for solving the optimization problem (default: "gurobi").
+            observation_data: The observed data for each element.
+            relative_error: The *relative* error as a percentage to use for resampling the observation data.
+            num_repeats: The number of times to repeat the Monte Carlo simulation.
+            regularization_strength: The strength of the regularization term (default: None).
+            solver: The solver to use for solving the optimization problem (default: "gurobi").
 
         Returns:
-            Tuple[Dict[str, List[float]], List[np.ndarray]] or Tuple[Dict[str, List[float]], Dict[str, List[float]]]:
                 A tuple containing the Monte Carlo simulation results.
                 - Both the downstream and upstream predictions are returned as dictionaries.
                 `predictions_down_mc` represents the downstream predictions, and `predictions_up_mc` represents
@@ -625,7 +646,7 @@ class SampleNetworkUnmixer:
         predictions for each sample site.
 
         Returns:
-            ElementData: A dictionary where each key is a sample name, and the corresponding value is the upstream
+            A dictionary where each key is a sample name, and the corresponding value is the upstream
             prediction for that sample site.
         """
         # Get the predicted upstream concentration we found
@@ -659,14 +680,13 @@ class SampleNetworkUnmixer:
         """
         return cp.norm(cp.vstack(self._regularizer_terms)).value
 
-
 def get_element_obs(element: str, obs_data: pd.DataFrame) -> ElementData:
     """
     Extracts observed element data from a pandas DataFrame.
 
     Args:
-        element (str): The name of the element for which the data is to be extracted.
-        obs_data (pd.DataFrame): The pandas DataFrame containing the observed element data.
+        element: The name of the element for which the data is to be extracted.
+        obs_data: The pandas DataFrame containing the observed element data.
 
     Returns:
         ElementData: A dictionary containing the observed element data, where the keys are sample names and the values
@@ -761,7 +781,7 @@ def get_unique_upstream_areas(
     Generates a dictionary mapping sample numbers to unique upstream areas as boolean masks.
 
     Args:
-        sample_network (nx.DiGraph): The network of sample sites along the drainage, with associated data.
+        sample_network: The network of sample sites along the drainage, with associated data.
 
     Returns:
         A dictionary where the keys are sample numbers and the values are boolean masks
@@ -882,8 +902,16 @@ def visualise_downstream(pred_dict: ElementData, obs_dict: ElementData, element:
         Additionally, a diagonal line is plotted as a reference, and the axis limits are set to show the data points
         without excessive padding. The aspect ratio of the plot is set to 1.
     """
-    obs = np.asarray([v for v in obs_dict.values()])
-    pred = np.asarray([v for v in pred_dict.values()])
+
+    # Loop through keys in obs_pred and extract values of element.
+    # Store the observed and predicted values in separate np arrays
+    obs = []
+    pred = []
+    for sample in obs_dict:
+        obs.append(obs_dict[sample])
+        pred.append(pred_dict[sample])
+    obs = np.array(obs)
+    pred = np.array(pred)
     plt.scatter(x=obs, y=pred)
     plt.yscale("log")
     plt.xscale("log")
