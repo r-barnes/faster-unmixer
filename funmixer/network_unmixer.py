@@ -1122,8 +1122,16 @@ def visualise_downstream(pred_dict: ElementData, obs_dict: ElementData, element:
         Additionally, a diagonal line is plotted as a reference, and the axis limits are set to show the data points
         without excessive padding. The aspect ratio of the plot is set to 1.
     """
-    obs = np.asarray([v for v in obs_dict.values()])
-    pred = np.asarray([v for v in pred_dict.values()])
+
+    # Loop through keys in obs_pred and extract values of element.
+    # Store the observed and predicted values in separate np arrays
+    obs = []
+    pred = []
+    for sample in obs_dict:
+        obs.append(obs_dict[sample])
+        pred.append(pred_dict[sample])
+    obs = np.array(obs)
+    pred = np.array(pred)
     plt.scatter(x=obs, y=pred)
     plt.yscale("log")
     plt.xscale("log")
