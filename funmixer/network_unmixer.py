@@ -511,7 +511,7 @@ class SampleNetworkUnmixer:
         observation_data: ElementData,
         export_rates: Optional[ExportRateData] = None,
         regularization_strength: Optional[float] = None,
-        solver: str = "gurobi",
+        solver: str = "ecos",
     ) -> FunmixerSolution:
         """
         Solves the optimization problem.
@@ -524,7 +524,7 @@ class SampleNetworkUnmixer:
             observation_data: The observed data for each element.
             export_rates: The export rates for each element. If not provided these are all set to 1.
             regularization_strength: The strength of the regularization term
-            solver: The solver to use for solving the optimization problem
+            solver: The solver to use for solving the optimization problem (default is ecos)
 
         Returns:
             A tuple containing the downstream and upstream predictions.
@@ -604,7 +604,7 @@ class SampleNetworkUnmixer:
         relative_error: float,
         num_repeats: int,
         regularization_strength: Optional[float] = None,
-        solver: str = "gurobi",
+        solver: str = "ecos",
     ) -> Union[
         Tuple[DefaultDict[str, List[float]], List[npt.NDArray[np.float_]]],
         Tuple[DefaultDict[str, List[float]], Dict[str, List[float]]],
