@@ -202,7 +202,7 @@ def test_balanced_network(
         max_conc, min_conc = min_conc, max_conc
 
     areas = lambda: draw_random_log_uniform(min_area, max_area)
-    concentrations = lambda: draw_random_log_uniform(min_area, max_conc)
+    concentrations = lambda: draw_random_log_uniform(min_conc, max_conc)
     network = generate_balanced_sample_network(
         branching_factor=branching_factor, height=height, areas=areas
     )
@@ -247,7 +247,7 @@ def test_rary_network(
         max_conc, min_conc = min_conc, max_conc
 
     areas = lambda: draw_random_log_uniform(min_area, max_area)
-    concentrations = lambda: draw_random_log_uniform(min_area, max_conc)
+    concentrations = lambda: draw_random_log_uniform(min_conc, max_conc)
     network = generate_r_ary_sample_network(N=N, branching_factor=branching_factor, areas=areas)
     upstream = conc_list_to_dict(network, concentrations)
     downstream = funmixer.forward_model(sample_network=network, upstream_concentrations=upstream)
