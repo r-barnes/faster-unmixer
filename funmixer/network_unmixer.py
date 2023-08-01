@@ -5,7 +5,18 @@ import tempfile
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Dict, Final, Iterator, List, Optional, Tuple, TypeVar, Union, DefaultDict
+from typing import (
+    Any,
+    Dict,
+    Final,
+    Iterator,
+    List,
+    Optional,
+    Tuple,
+    TypeVar,
+    Union,
+    DefaultDict,
+)
 
 # TODO(rbarnes): Make a requirements file for conda
 import cvxpy as cp
@@ -41,6 +52,10 @@ def not_none(x: Optional[T]) -> T:
 
 @dataclass
 class SampleNode:
+    """
+    A class to represent a sample node in a Sample Network.
+    """
+
     name: str
     x: int
     y: int
@@ -74,6 +89,9 @@ class SampleNode:
 
 
 def native_sample_graph_to_python(g: Dict[str, fn.NativeSampleNode]) -> Dict[str, SampleNode]:
+    """
+    Convert a graph of native SampleNodes to a graph of Python SampleNodes.
+    """
     newg: Dict[str, SampleNode] = {}
     for k, v in g.items():
         newg[k] = SampleNode.from_native(v)
@@ -107,6 +125,10 @@ logger: logging.Logger = logging.getLogger()
 
 @dataclass
 class FunmixerSolution:
+    """
+    A class to hold the results of a SampleNetworkUnmixer run.
+    """
+
     objective_value: float
     solver_name: str
     total_time: float
@@ -121,10 +143,10 @@ def geo_mean(x: List[float]) -> float:
     Returns the geometric mean of a list of numbers.
 
     Args:
-        x (List[float]): The list of numbers.
+        x: The list of numbers.
 
     Returns:
-        float: The geometric mean of the numbers in the list.
+        The geometric mean of the numbers in the list.
     """
     # pyre-fixme[6]: For 1st argument expected `Union[bytes, complex, float, int,
     #  generic, str]` but got `List[float]`.
@@ -138,10 +160,10 @@ def nx_topological_sort_with_data(
     Returns a topological sort of the graph, with the data of each node.
 
     Args:
-        G (nx.DiGraph): The graph.
+        G: The graph.
 
     Returns:
-        Iterator[Tuple[str, fn.SampleNode]]: An iterator yielding tuples of node name and node data.
+        An iterator yielding tuples of node name and node data.
     """
     # pyre-fixme[16]: `None` has no attribute `__iter__`.
     return ((x, G.nodes[x]["data"]) for x in nx.topological_sort(G))
@@ -152,11 +174,11 @@ def nx_get_downstream(G: nx.DiGraph, x: str) -> Optional[str]:
     Gets the downstream child from a node with only one child.
 
     Args:
-        G (nx.DiGraph): The graph.
-        x (str): The node.
+        G: The graph.
+        x: The node.
 
     Returns:
-        Optional[str]: The downstream child node name, or None if there is no downstream child or multiple downstream children.
+        The downstream child node name, or None if there is no downstream child or multiple downstream children.
 
     Raises:
         Exception: If there is more than one downstream neighbor.
@@ -175,7 +197,7 @@ def plot_network(G: nx.DiGraph) -> None:
     Plots a networkx graph using graphviz.
 
     Args:
-        G (nx.DiGraph): The graph to plot.
+        G: The graph to plot.
     """
     ag = nx.nx_agraph.to_agraph(G)
     ag.layout(prog="dot")
@@ -231,10 +253,6 @@ class SampleNetworkUnmixer:
     Attributes:
         sample_network (nx.DiGraph): The sample network.
         use_regularization (bool): Flag indicating whether to use regularization to solve.
-        continuous (bool): Flag indicating whether to solve `continuously' or discretely by each sub-basin.
-        area_labels (Optional[np.array]): The mapping of pixels to area labels.
-        nx (Optional[int]): The number of x nodes in the inversion grid.
-        ny (Optional[int]): The number of x nodes in the inversion grid.
 
     Methods:
         __init__:
@@ -247,18 +265,12 @@ class SampleNetworkUnmixer:
             Get the downstream prediction as a dictionary.
         get_upstream_prediction_dictionary:
             Get the upstream prediction as a dictionary.
-        get_upstream_prediction_map:
-            Get the upstream prediction as a map.
     """
 
     def __init__(
         self,
         sample_network: nx.DiGraph,
         use_regularization: bool = True,
-        continuous: bool = False,
-        area_labels: Optional[npt.NDArray[np.int_]] = None,
-        nx: Optional[int] = None,
-        ny: Optional[int] = None,
     ) -> None:
         """
         Initialize the SampleNetworkUnmixer class.
@@ -266,20 +278,9 @@ class SampleNetworkUnmixer:
         Args:
             sample_network (nx.DiGraph): The sample network.
             use_regularization (bool): Flag indicating whether to use regularization.
-            continuous (bool): Flag indicating whether the network is continuous.
-            area_labels (Optional[np.array]): The area labels. (Only if continuous is True)
-            nx (Optional[int]): The value of nx. (Only if continuous is True)
-            ny (Optional[int]): The value of ny. (Only if continuous is True)
         """
 
         self.sample_network = sample_network
-        self.continuous: bool = continuous
-        # TODO: Use a subclass, avoid polymorphism
-        if self.continuous:
-            assert nx is not None
-            assert ny is not None
-            assert area_labels is not None
-            self.grid: InverseGrid = InverseGrid(nx, ny, area_labels, sample_network)
         self._site_to_observation: Dict[str, ReciprocalParameter] = {}
         self._site_to_export_rate: Dict[str, cp.Parameter] = {}
         self._site_to_total_flux: Dict[str, ReciprocalParameter] = {}
@@ -290,10 +291,7 @@ class SampleNetworkUnmixer:
         self._problem: Optional[cp.Problem] = None
         self._build_primary_terms()
         if use_regularization:
-            if continuous:
-                self._build_regularizer_terms_continuous()
-            else:
-                self._build_regularizer_terms_discrete()
+            self._build_regularizer_terms()
         self._build_problem()
 
     def _calculate_normalised_areas(self, sample_network: nx.DiGraph) -> None:
@@ -302,7 +300,7 @@ class SampleNetworkUnmixer:
         of all nodes in the network.
 
         Args:
-            sample_network (nx.DiGraph): The sample network graph.
+            sample_network: The sample network graph.
 
         Note:
             The method calculates the mean upstream area of all nodes in the network and assigns a normalized relative area (`rltv_area`)
@@ -330,13 +328,7 @@ class SampleNetworkUnmixer:
         # Use a topological sort to ensure an upstream-to-downstream traversal
         for sample_name, my_data in nx_topological_sort_with_data(self.sample_network):
             # Set up a CVXPY parameter for each element for each node
-            if self.continuous:
-                concs = [node.concentration for node in self.grid.sites_to_nodes[sample_name]]
-
-                # mean conc of all inversion nodes upstream
-                my_data.my_tracer_value = cp.sum(concs) / len(concs)
-            else:
-                my_data.my_tracer_value = cp.Variable(pos=True)
+            my_data.my_tracer_value = cp.Variable(pos=True)
 
             # Export rate of total material (e.g., erosion rate, run-off)
             # Value is set at runtime
@@ -392,34 +384,9 @@ class SampleNetworkUnmixer:
                 # Add our *tracer* flux to the downstream node's
                 downstream_data.my_total_tracer_flux += my_data.my_total_tracer_flux
 
-    def _build_regularizer_terms_continuous(self) -> None:
+    def _build_regularizer_terms(self) -> None:
         """
-        Build the regularizer terms for continuous inversion grids.
-        """
-        # Build the regularizer
-        # Loop through all nodes in grid
-        for node in self.grid.node_arr.flatten():
-            # If node outside of sample area it is ignored
-            if node.sample_name == "NaN":
-                continue
-            # If node has a neighbour to left, and this is not outside of area then we append the
-            # difference to the regulariser terms.
-            if node.left_neighbour and node.left_neighbour.sample_name != "NaN":
-                # TODO: Make difference a log-ratio
-                self._regularizer_terms.append(
-                    node.concentration - node.left_neighbour.concentration
-                )
-            # If node has a neighbour above, and this is not outside of area then we append the
-            # difference to the regulariser terms.
-            if node.top_neighbour and node.top_neighbour.sample_name != "NaN":
-                # TODO: Make difference a log-ratio
-                self._regularizer_terms.append(
-                    node.concentration - node.top_neighbour.concentration
-                )
-
-    def _build_regularizer_terms_discrete(self) -> None:
-        """
-        Build the regularizer terms for discrete networks.
+        Build the regularizer terms.
         """
         # Build regularizer
         for _, data in self.sample_network.nodes(data=True):
@@ -472,7 +439,7 @@ class SampleNetworkUnmixer:
         Reset and set the export rate parameters according to input export rates.
 
         Args:
-            export_rate_data (ElementData): The export rate data.
+            export_rate_data: The export rate data.
         """
         # Reset all sites' export rates
         for x in self._site_to_export_rate.values():
@@ -511,7 +478,7 @@ class SampleNetworkUnmixer:
         observation_data: ElementData,
         export_rates: Optional[ExportRateData] = None,
         regularization_strength: Optional[float] = None,
-        solver: str = "gurobi",
+        solver: str = "ecos",
     ) -> FunmixerSolution:
         """
         Solves the optimization problem.
@@ -524,13 +491,11 @@ class SampleNetworkUnmixer:
             observation_data: The observed data for each element.
             export_rates: The export rates for each element. If not provided these are all set to 1.
             regularization_strength: The strength of the regularization term
-            solver: The solver to use for solving the optimization problem
+            solver: The solver to use for solving the optimization problem (default is ecos)
 
         Returns:
-            A tuple containing the downstream and upstream predictions.
-            - If solving continuously, the downstream and upstream predictions are returned as a `np.ndarray` 2D map.
-            - If solving discretely, the downstream and upstream predictions are returned as `ElementData`,
-                which is a dictionary-like object containing the concentrations for each element.
+            A tuple containing the downstream and upstream predictions. The downstream and upstream predictions
+            are returned as `ElementData`, which is a dictionary-like object containing the concentrations for each element.
 
         Raises:
             Exception: If regularizer terms are present but no regularization strength is assigned.
@@ -572,15 +537,8 @@ class SampleNetworkUnmixer:
 
         downstream_preds = self.get_downstream_prediction_dictionary()
         downstream_preds = {sample: value * obs_mean for sample, value in downstream_preds.items()}
-        # If solving continuously return a map on resolution base DEM
-
-        # TODO: This polymorphic behaviour is unpleasant. Use a subclass.
-        if self.continuous:
-            upstream_preds = self.get_upstream_prediction_map() * obs_mean
-        # If solving discrete return a dictionary of values corresponding to each sample site
-        else:
-            upstream_preds = self.get_upstream_prediction_dictionary()
-            upstream_preds = {sample: value * obs_mean for sample, value in upstream_preds.items()}
+        upstream_preds = self.get_upstream_prediction_dictionary()
+        upstream_preds = {sample: value * obs_mean for sample, value in upstream_preds.items()}
 
         logger.info(f"Objective value = {objective_value}")
         logger.info(f"Total time = {end_solve_time - start_solve_time}")
@@ -605,10 +563,7 @@ class SampleNetworkUnmixer:
         num_repeats: int,
         regularization_strength: Optional[float] = None,
         solver: str = "gurobi",
-    ) -> Union[
-        Tuple[DefaultDict[str, List[float]], List[npt.NDArray[np.float_]]],
-        Tuple[DefaultDict[str, List[float]], Dict[str, List[float]]],
-    ]:
+    ) -> Tuple[DefaultDict[str, List[float]], Dict[str, List[float]]]:
         """
         Solves the optimization problem using Monte Carlo simulation.
 
@@ -617,21 +572,15 @@ class SampleNetworkUnmixer:
         in the downstream and upstream predictions.
 
         Args:
-            observation_data (ElementData): The observed data for each element.
-            relative_error (float): The *relative* error as a percentage to use for resampling the observation data.
-            num_repeats (int): The number of times to repeat the Monte Carlo simulation.
-            regularization_strength (Optional[float]): The strength of the regularization term (default: None).
-            solver (str): The solver to use for solving the optimization problem (default: "gurobi").
+            observation_data: The observed data for each element.
+            relative_error: The *relative* error as a percentage to use for resampling the observation data.
+            num_repeats: The number of times to repeat the Monte Carlo simulation.
+            regularization_strength: The strength of the regularization term (default: None).
+            solver: The solver to use for solving the optimization problem (default: "gurobi").
 
         Returns:
-            Tuple[Dict[str, List[float]], List[np.ndarray]] or Tuple[Dict[str, List[float]], Dict[str, List[float]]]:
                 A tuple containing the Monte Carlo simulation results.
-                - If solving continuously, the downstream predictions are returned as a dictionary, `predictions_down_mc`,
-                where each key represents a sample name, and the corresponding value is a list of downstream predictions
-                for that sample across the Monte Carlo simulation.
-                The upstream predictions are returned as a list, `predictions_up_mc`, containing the upstream predictions
-                across the Monte Carlo simulation.
-                - If solving discretely, both the downstream and upstream predictions are returned as dictionaries.
+                - Both the downstream and upstream predictions are returned as dictionaries.
                 `predictions_down_mc` represents the downstream predictions, and `predictions_up_mc` represents
                 the upstream predictions, where each key represents a sample name, and the corresponding value is a list
                 of predictions for that sample across the Monte Carlo simulation.
@@ -647,11 +596,7 @@ class SampleNetworkUnmixer:
             A lower value results in a solution that fits the observed data more closely but may `overfit' data.
         """
         predictions_down_mc: DefaultDict[str, List[float]] = defaultdict(list)
-
-        if self.continuous:
-            predictions_up_mc = []
-        else:
-            predictions_up_mc = defaultdict(list)
+        predictions_up_mc: DefaultDict[str, List[float]] = defaultdict(list)
 
         for _ in tqdm.tqdm(range(num_repeats), total=num_repeats):
             observation_data_resampled = {
@@ -666,14 +611,11 @@ class SampleNetworkUnmixer:
             for sample_name, v in solution.downstream_preds.items():
                 predictions_down_mc[sample_name].append(v)
 
-            if self.continuous:
-                predictions_up_mc += [solution.upstream_preds]
-            else:
-                # pyre-fixme[16]: Item `ndarray` of `Union[Dict[str, float],
-                #  ndarray[typing.Any, np.dtype[typing.Any]]]` has no attribute
-                #  `items`.
-                for sample_name, v in solution.upstream_preds.items():
-                    predictions_up_mc[sample_name].append(v)
+            # pyre-fixme[16]: Item `ndarray` of `Union[Dict[str, float],
+            #  ndarray[typing.Any, np.dtype[typing.Any]]]` has no attribute
+            #  `items`.
+            for sample_name, v in solution.upstream_preds.items():
+                predictions_up_mc[sample_name].append(v)
 
         return predictions_down_mc, predictions_up_mc
 
@@ -704,60 +646,15 @@ class SampleNetworkUnmixer:
         predictions for each sample site.
 
         Returns:
-            ElementData: A dictionary where each key is a sample name, and the corresponding value is the upstream
+            A dictionary where each key is a sample name, and the corresponding value is the upstream
             prediction for that sample site.
-
-        Raises:
-            Exception: If the network is continuous, this method is not valid for upstream predictions.
         """
-        if self.continuous:
-            raise Exception(
-                "Warning: `get_upstream_prediction_dictionary` only valid for discrete networks"
-            )
         # Get the predicted upstream concentration we found
         predictions: ElementData = {}
         for sample_name, data in self.sample_network.nodes(data=True):
             data = data["data"]
             predictions[sample_name] = data.my_tracer_value.value
         return predictions
-
-    def get_upstream_prediction_map(self) -> npt.NDArray[np.float_]:
-        """
-        Returns the upstream predictions as a map.
-
-        This method returns a numpy array representing the upstream predictions across the network.
-        Each cell in the array corresponds to an area on the grid, and its value represents the upstream prediction
-        for that area.
-
-        Returns:
-            A numpy array representing the upstream predictions as a map.
-
-        Raises:
-            Exception: If the network is discrete, this method is not valid for upstream predictions.
-        """
-        if not self.continuous:
-            raise Exception(
-                "Warning: `get_upstream_prediction_map` only valid for continuous networks"
-            )
-        out = np.zeros(self.grid.area_labels.shape)
-        xstep = out.shape[1] / self.grid.nx
-        ystep = out.shape[0] / self.grid.ny
-        # Loop through inversion grid nodes
-        for i in range(self.grid.nx):
-            for j in range(self.grid.ny):
-                # indices which subdivide the areas on the base array for each inversion grid.
-                x_start = int(i * xstep)
-                x_end = int((i + 1) * xstep)
-                y_start = int((j * ystep))
-                y_end = int((j + 1) * ystep)
-                node = self.grid.node_arr[j, i]
-                # Catch exception for nodes outside of area
-                if node.concentration:
-                    val = node.concentration.value
-                else:
-                    val = np.nan
-                out[y_start:y_end, x_start:x_end] = val
-        return out
 
     def get_misfit(self) -> float:
         """
@@ -783,130 +680,13 @@ class SampleNetworkUnmixer:
         """
         return cp.norm(cp.vstack(self._regularizer_terms)).value
 
-
-@dataclass
-class InverseNode:
-    """A single node on an inversion grid.
-
-    Each `InverseNode` corresponds to a rectangle of pixels on the base raster
-    and is associated with a single sample site. The sample site which each
-    `InverseNode` is associated to is based on sub-catchment which the *centre*
-    of the rectangle lies in. For rectangles which overlap two catchments, there
-    may be some inaccuracies as each `InverseNode` can only be associated with
-    one sample site. As the resolution increases this inaccuracy decreases.
-
-    Attributes:
-        left_neighbour : Pointer to left-neighbouring InverseNode
-        top_neighbour : Pointer to vertically-above InverseNode
-        sample_name : Samplename associated with this node
-        concentration: Value to be optimized for
-    """
-
-    left_neighbour: "InverseNode"
-    top_neighbour: "InverseNode"
-    sample_name: str
-    concentration: cp.Variable = field(default_factory=lambda: cp.Variable(pos=True))
-
-
-class InverseGrid:
-    """A regularly spaced rectangular grid of inverse nodes
-
-    Args:
-        nx : Number of columns in the grid
-        ny : Number of rows in the grid
-        area_labels : 2D array which matches upstream areas to labels
-        sample_network : Network of sample_sites along drainage, with associated data
-
-    Attributes:
-        nx : Number of columns in the grid
-        ny : Number of rows in the grid
-        area_labels : 2D array which matches pixels to sample labels
-        node_arr : List of lists (dims: (ny,xs)) containing all InverseNodes
-        sites_to_nodes : Dict mapping sample numbers to list of nodes in its upstream area
-    """
-
-    def __init__(
-        self,
-        nx: int,
-        ny: int,
-        area_labels: npt.NDArray[np.int_],
-        sample_network: nx.DiGraph,
-    ) -> None:
-        """
-        Initialize an InverseGrid object.
-
-        Args:
-            nx (int): Number of columns in the grid.
-            ny (int): Number of rows in the grid.
-            area_labels (np.array): 2D array which matches upstream areas to labels.
-            sample_network (nx.DiGraph): Network of sample sites along the drainage, with associated data.
-
-        Raises:
-            Exception: If nx or ny is not strictly positive.
-            Exception: If the desired resolution is greater than that of the DEM.
-            Exception: If not all catchments contain a node.
-
-        Note:
-            The InverseGrid object represents a regularly spaced rectangular grid of inverse nodes. Each inverse
-            node corresponds to a rectangle of pixels on the base raster and is associated with a single sample site.
-            The association of each inverse node with a sample site is based on the sub-catchment in which the center
-            of the rectangle lies. For rectangles that overlap two catchments, there may be some inaccuracies as each
-            inverse node can only be associated with one sample site.
-
-            The grid is defined by the number of columns (nx) and rows (ny). The area_labels is a 2D array that matches
-            upstream areas to labels. The sample_network is a NetworkX DiGraph object representing the network of
-            sample sites along the drainage, with associated data.
-        """
-        self.area_labels = area_labels
-        if nx <= 0 or ny <= 0:
-            raise Exception("Warning: nx or ny must be strictly positive")
-        xmax = area_labels.shape[1]
-        ymax = area_labels.shape[0]
-        if ny > ymax or nx > xmax:
-            raise Exception(
-                "Warning: desired resolution greater than that of DEM. \n Decrease resolution to resolve"
-            )
-        self.nx = nx
-        self.ny = ny
-        xstep = xmax / nx
-        ystep = ymax / ny
-        # The x and y coordinates on the DEM of the *centres* of the rectangular nodes
-        xs = np.linspace(start=xstep / 2, stop=xmax - xstep / 2, num=nx)
-        ys = np.linspace(start=ystep / 2, stop=ymax - ystep / 2, num=ny)
-        self.sites_to_nodes: DefaultDict[str, List[InverseNode]] = defaultdict(list)
-        # Map area labels to sample numbers
-        area_label_to_sample_name = {
-            data["data"].label: node for node, data in sample_network.nodes(data=True)
-        }
-        self.node_arr: npt.NDArray[InverseNode] = np.empty((ny, nx), dtype=object)
-        # Loop through a (nx, ny) grid
-        for i, x_coord in enumerate(xs):
-            for j, y_coord in enumerate(ys):
-                # Point towards neighbours, catching uppper & left boundary node exceptions
-                left = self.node_arr[j, i - 1] if i > 0 else None
-                top = self.node_arr[j - 1, i] if j > 0 else None
-                label = self.area_labels[int(y_coord), int(x_coord)]
-                sample_name = area_label_to_sample_name[label] if label != 0 else "NaN"
-                # Create an inversion node
-                node = InverseNode(left_neighbour=left, top_neighbour=top, sample_name=sample_name)
-                self.node_arr[j, i] = node
-                self.sites_to_nodes[node.sample_name].append(node)
-        # For low density grids, sample areas can contain no nodes resulting in errors.
-        # Catch this exception here
-        num_keys = len(self.sites_to_nodes)
-        if num_keys < len(np.unique(self.area_labels)) - 1:
-            raise Exception(
-                "Warning: Not all catchments contain a node. \n \t Increase resolution to resolve"
-            )
-
-
 def get_element_obs(element: str, obs_data: pd.DataFrame) -> ElementData:
     """
     Extracts observed element data from a pandas DataFrame.
 
     Args:
-        element (str): The name of the element for which the data is to be extracted.
-        obs_data (pd.DataFrame): The pandas DataFrame containing the observed element data.
+        element: The name of the element for which the data is to be extracted.
+        obs_data: The pandas DataFrame containing the observed element data.
 
     Returns:
         ElementData: A dictionary containing the observed element data, where the keys are sample names and the values
@@ -1001,7 +781,7 @@ def get_unique_upstream_areas(
     Generates a dictionary mapping sample numbers to unique upstream areas as boolean masks.
 
     Args:
-        sample_network (nx.DiGraph): The network of sample sites along the drainage, with associated data.
+        sample_network: The network of sample sites along the drainage, with associated data.
 
     Returns:
         A dictionary where the keys are sample numbers and the values are boolean masks
@@ -1122,8 +902,16 @@ def visualise_downstream(pred_dict: ElementData, obs_dict: ElementData, element:
         Additionally, a diagonal line is plotted as a reference, and the axis limits are set to show the data points
         without excessive padding. The aspect ratio of the plot is set to 1.
     """
-    obs = np.asarray([v for v in obs_dict.values()])
-    pred = np.asarray([v for v in pred_dict.values()])
+
+    # Loop through keys in obs_pred and extract values of element.
+    # Store the observed and predicted values in separate np arrays
+    obs = []
+    pred = []
+    for sample in obs_dict:
+        obs.append(obs_dict[sample])
+        pred.append(pred_dict[sample])
+    obs = np.array(obs)
+    pred = np.array(pred)
     plt.scatter(x=obs, y=pred)
     plt.yscale("log")
     plt.xscale("log")

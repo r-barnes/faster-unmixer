@@ -33,8 +33,11 @@ def main() -> None:
     upst_conc_map = funmixer.get_upstream_concentration_map(areas, synth_upst_concs)
     # Predict concentration at downstream observation points
     print("Predicting downstream concentrations...")
-    mixed_synth_down, _ = funmixer.forward_model(
-        sample_network, areas, upst_conc_map, export_rates=input_export_rates
+    mixed_synth_down, _ = funmixer.mix_downstream(
+        sample_network=sample_network,
+        areas=areas,
+        concentration_map=upst_conc_map,
+        export_rates=input_export_rates,
     )
     ## Add noise
     # mixed_synth_down = {
