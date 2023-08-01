@@ -7,7 +7,6 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import (
     Any,
-    cast,
     DefaultDict,
     Dict,
     Final,
@@ -17,6 +16,7 @@ from typing import (
     Tuple,
     TypeVar,
     Union,
+    cast,
 )
 
 # TODO(rbarnes): Make a requirements file for conda
@@ -34,6 +34,7 @@ import pandas as pd
 import tqdm
 
 import _funmixer_native as fn
+
 from .cvxpy_extensions import ReciprocalParameter, cp_log_ratio
 
 NO_DOWNSTREAM: Final[int] = 0

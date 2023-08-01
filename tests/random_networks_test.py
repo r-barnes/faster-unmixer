@@ -3,11 +3,12 @@
 import math
 from typing import Callable, Optional
 
-import funmixer
 import networkx as nx
 import numpy as np
 from hypothesis import given, settings
 from hypothesis import strategies as st
+
+import funmixer
 
 
 def max_height_of_balanced_tree(N: int, branching_factor: int) -> int:

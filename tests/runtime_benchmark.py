@@ -1,17 +1,18 @@
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import List, Tuple, TypeVar, Optional, DefaultDict
+from typing import DefaultDict, List, Optional, Tuple, TypeVar
 
-from random_networks_test import (
-    generate_r_ary_sample_network,
-    draw_random_log_uniform,
-    conc_list_to_dict,
-)
-import funmixer
 import matplotlib.pyplot as plt
 import numpy as np
 import tqdm
+from random_networks_test import (
+    conc_list_to_dict,
+    draw_random_log_uniform,
+    generate_r_ary_sample_network,
+)
+
+import funmixer
 
 T = TypeVar("T")
 
