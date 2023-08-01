@@ -133,7 +133,7 @@ SOLVERS: Dict[str, Any] = {
         "reltol_inacc": 5e-5,
         "feastol_inacc": 1e-4,
     },
-    "scs": {"solver": cp.SCS, "verbose": True, "max_iters": 10000},
+    "scs": {"solver": cp.SCS, "verbose": False, "max_iters": 10000},
     "gurobi": {"solver": cp.GUROBI, "verbose": False, "NumericFocus": 3},
 }
 
@@ -152,7 +152,7 @@ class FunmixerSolution:
     solve_time: Optional[float]
     setup_time: Optional[float]
     downstream_preds: ElementData
-    upstream_preds: Union[ElementData, npt.NDArray[np.float_]]
+    upstream_preds: ElementData
 
 
 def geo_mean(x: List[float]) -> float:
@@ -188,16 +188,16 @@ def nx_topological_sort_with_data(
     )
 
 
-def nx_get_downstream(G: nx.DiGraph, x: str) -> Optional[DownstreamNode]:
+def nx_get_downstream_node(G: nx.DiGraph, x: str) -> Optional[str]:
     """
-    Gets the downstream child from a node with only one child.
+    Gets the name of the downstream child, if there is one.
 
     Args:
         G: The graph.
         x: The node.
 
     Returns:
-        The downstream child node name, or None if there is no downstream child or multiple downstream children.
+        The downstream child node's name, or None if there is no downstream child.
 
     Raises:
         Exception: If there is more than one downstream neighbor.
@@ -206,9 +206,28 @@ def nx_get_downstream(G: nx.DiGraph, x: str) -> Optional[DownstreamNode]:
     if len(s) == 0:
         return None
     elif len(s) == 1:
-        return DownstreamNode(s[0], cast(SampleNode, G.nodes[s[0]]["data"]))
+        return s[0]
     else:
         raise Exception("More than one downstream neighbour!")
+
+
+def nx_get_downstream_data(G: nx.DiGraph, x: str) -> Optional[SampleNode]:
+    """
+    Gets data from the downstream child, if there is one
+
+    Args:
+        G: The graph.
+        x: The node.
+
+    Returns:
+        The downstream child's data, or None if there is no child.
+
+    Raises:
+        Exception: If there is more than one downstream neighbor.
+    """
+    s = nx_get_downstream_node(G, x)
+    if s:
+        return cast(SampleNode, G.nodes[s]["data"])
 
 
 def plot_network(G: nx.DiGraph) -> None:
@@ -366,6 +385,9 @@ class SampleNetworkUnmixer:
             self._site_to_total_flux[my_data.name] = total_flux_dummy
 
             # Area weighted contribution of *tracer* from this node
+            # pyre-fixme[58]: `*` is not supported for operand types `Union[None,
+            #  cp.expressions.expression.Expression, float]` and
+            #  `Optional[cp.expressions.expression.Expression]`.
             my_data.my_tracer_flux = my_data.my_flux * my_data.my_tracer_value
             # Add the *tracer* flux I generate to the total flux of *tracer* passing through me
             my_data.my_total_tracer_flux += my_data.my_tracer_flux
@@ -392,11 +414,11 @@ class SampleNetworkUnmixer:
             misfit = cp_log_ratio(normalised_concentration_dummy, observed)
             self._primary_terms.append(misfit)
 
-            if (ds := nx_get_downstream(self.sample_network, sample_name)) is not None:
+            if (ds := nx_get_downstream_data(self.sample_network, sample_name)) is not None:
                 # Add our flux to downstream node's
-                ds.data.my_total_flux += my_data.my_total_flux
+                ds.my_total_flux += my_data.my_total_flux
                 # Add our *tracer* flux to the downstream node's
-                ds.data.my_total_tracer_flux += my_data.my_total_tracer_flux
+                ds.my_total_tracer_flux += my_data.my_total_tracer_flux
 
     def _build_regularizer_terms(self) -> None:
         """
@@ -481,6 +503,8 @@ class SampleNetworkUnmixer:
             x.value = None
 
         for site, data in nx_items(self.sample_network):
+            # pyre-fixme[16]: Item `float` of `Union[Expression, float]` has no
+            #  attribute `value`.
             self._site_to_total_flux[site].value = data.my_total_flux.value
 
         for x in self._site_to_total_flux.values():
@@ -624,9 +648,6 @@ class SampleNetworkUnmixer:
             for sample_name, v in solution.downstream_preds.items():
                 predictions_down_mc[sample_name].append(v)
 
-            # pyre-fixme[16]: Item `ndarray` of `Union[Dict[str, float],
-            #  ndarray[typing.Any, np.dtype[typing.Any]]]` has no attribute
-            #  `items`.
             for sample_name, v in solution.upstream_preds.items():
                 predictions_up_mc[sample_name].append(v)
 
@@ -647,7 +668,10 @@ class SampleNetworkUnmixer:
         predictions: ElementData = {}
         for sample_name, data in nx_items(self.sample_network):
             predictions[sample_name] = cast(
-                float, data.my_total_tracer_flux.value / data.my_total_flux.value
+                # pyre-fixme[16]: Item `float` of `Union[Expression, float]` has no
+                #  attribute `value`.
+                float,
+                data.my_total_tracer_flux.value / data.my_total_flux.value,
             )
         return predictions
 
@@ -666,6 +690,7 @@ class SampleNetworkUnmixer:
         # Get the predicted upstream concentration we found
         predictions: ElementData = {}
         for sample_name, data in nx_items(self.sample_network):
+            # pyre-fixme[16]: `Optional` has no attribute `value`.
             predictions[sample_name] = data.my_tracer_value.value
         return predictions
 
@@ -737,25 +762,30 @@ def forward_model(
     for sample_name, my_data in nx_topological_sort_with_data(sample_network):
         # If provided, set export rates from user input
         # else default to equal rate (absolute value is arbitrary)
+        # pyre-fixme[8]: Attribute has type `Parameter`; used as `float`.
         my_data.my_export_rate = export_rates[sample_name] if export_rates else 1.0
 
+        # pyre-fixme[8]: Attribute has type `Optional[Expression]`; used as `float`.
         my_data.my_tracer_value = upstream_concentrations[sample_name]
         # area weighted total contribution of material from this node
         my_data.my_flux = my_data.area * my_data.my_export_rate
         # Add the flux I generate to the total flux passing through me
         my_data.my_total_flux += my_data.my_flux
         # area weighted contribution of *tracer* from this node
+        # pyre-fixme[58]: `*` is not supported for operand types `Union[None,
+        #  cp.expressions.expression.Expression, float]` and
+        #  `Optional[cp.expressions.expression.Expression]`.
         my_data.my_tracer_flux = my_data.my_flux * my_data.my_tracer_value
         # Add the *tracer* flux I generate to the total flux of *tracer* passing through me
         my_data.my_total_tracer_flux += my_data.my_tracer_flux
 
         normalised = my_data.my_total_tracer_flux / my_data.my_total_flux
         mixed_downstream_pred[sample_name] = normalised
-        if (ds := nx_get_downstream(sample_network, sample_name)) is not None:
+        if (ds := nx_get_downstream_data(sample_network, sample_name)) is not None:
             # Add our flux to downstream node's
-            ds.data.my_total_flux += my_data.my_total_flux
+            ds.my_total_flux += my_data.my_total_flux
             # Add our *tracer* flux to the downstream node's
-            ds.data.my_total_tracer_flux += my_data.my_total_tracer_flux
+            ds.my_total_tracer_flux += my_data.my_total_tracer_flux
 
     return mixed_downstream_pred
 
@@ -862,7 +892,7 @@ def plot_sweep_of_regularizer_strength(
 
 def get_upstream_concentration_map(
     areas: Dict[str, npt.NDArray[np.bool_]],
-    upstream_preds: Dict[str, npt.NDArray[np.float_]],
+    upstream_preds: Dict[str, float],
 ) -> npt.NDArray[np.float_]:
     """
     Generate a two-dimensional map displaying the predicted upstream concentration for a given element for each unique upstream area.

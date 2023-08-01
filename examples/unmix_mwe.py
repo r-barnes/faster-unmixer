@@ -60,9 +60,6 @@ def main() -> None:
     area_dict = funmixer.get_unique_upstream_areas(sample_network)  # Extract areas for each basin
     upstream_map = funmixer.get_upstream_concentration_map(
         area_dict,
-        # pyre-fixme[6]: For 2nd argument expected `Dict[str, ndarray[typing.Any,
-        #  dtype[typing.Any]]]` but got `Union[ndarray[typing.Any, dtype[typing.Any]],
-        #  Dict[str, float]]`.
         solution.upstream_preds,
     )  # Assign to upstream preds
 

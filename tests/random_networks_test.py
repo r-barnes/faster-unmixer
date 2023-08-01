@@ -10,6 +10,33 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 
+def max_height_of_balanced_tree(N: int, branching_factor: int) -> int:
+    # Calculate the height of a balanced tree with N nodes and branching factor r
+    # h = log_r(N(r-1)+1)-1
+    return math.floor(math.log(N * (branching_factor - 1) + 1, branching_factor) - 1)
+
+
+# Set the range to explore upstream concentration values over
+MINIMUM_CONC = 1
+MAXIMUM_CONC = 1e2
+
+# Set the range to explore sub-basin area values over
+MINIMUM_AREA = 1
+MAXIMUM_AREA = 1e2
+
+# Maximum number of nodes in a random network
+MAXIMUM_NUMBER_OF_NODES = 100
+
+# Maximum branching factor of a random network
+MAXIMUM_BRANCHING_FACTOR = 4
+
+# Maximum possible height of a balanced tree with given network parameters
+MAXIMUM_HEIGHT: int = max_height_of_balanced_tree(MAXIMUM_NUMBER_OF_NODES, MAXIMUM_BRANCHING_FACTOR)
+
+# Set the desired level of accuracy for tests to pass
+TARGET_TOLERANCE = 0.01  # 0.01 = 1 %
+
+
 def draw_random_log_uniform(min_val: float, max_val: float) -> float:
     """
     Draws a sample from a log uniform distribution between min_val and max_val
@@ -36,12 +63,6 @@ def size_of_balanced_tree(r: int, h: int) -> int:
     return (r ** (h + 1) - 1) / (r - 1)
 
 
-def max_height_of_balanced_tree(N: int, branching_factor: int) -> int:
-    # Calculate the height of a balanced tree with N nodes and branching factor r
-    # h = log_r(N(r-1)+1)-1
-    return math.floor(math.log(N * (branching_factor - 1) + 1, branching_factor) - 1)
-
-
 def generate_random_sample_network(
     N: int, areas: Callable[[], float], seed: Optional[int] = None
 ) -> nx.DiGraph:
@@ -59,7 +80,7 @@ def generate_random_sample_network(
         G.nodes[node]["data"] = funmixer.SampleNode(
             name=node,
             area=areas(),
-            downstream_node=n.node if (n := funmixer.nx_get_downstream(G, node)) else None,
+            downstream_node=funmixer.nx_get_downstream_node(G, node),
             x=-1,
             y=-1,
             total_upstream_area=0,
@@ -85,7 +106,7 @@ def generate_balanced_sample_network(
         G.nodes[node]["data"] = funmixer.SampleNode(
             name=node,
             area=areas(),
-            downstream_node=n.node if (n := funmixer.nx_get_downstream(G, node)) else None,
+            downstream_node=funmixer.nx_get_downstream_node(G, node),
             x=-1,
             y=-1,
             total_upstream_area=0,
@@ -112,7 +133,7 @@ def generate_r_ary_sample_network(
         G.nodes[node]["data"] = funmixer.SampleNode(
             name=node,
             area=areas(),
-            downstream_node=n.node if (n := funmixer.nx_get_downstream(G, node)) else None,
+            downstream_node=funmixer.nx_get_downstream_node(G, node),
             x=-1,
             y=-1,
             total_upstream_area=0,
@@ -123,29 +144,13 @@ def generate_r_ary_sample_network(
     return G
 
 
-### Set the test parameters ###
-
-# Set the range to explore upstream concentration values over
-minimum_conc, maximum_conc = 1, 1e2
-# Set the range to explore sub-basin area values over
-minimum_area, maximum_area = 1, 1e2
-# Maximum number of nodes in a random network
-maximum_number_of_nodes = 100
-# Maximum branching factor of a random network
-maximum_branching_factor = 4
-# Maximum possible height of a balanced tree with given network parameters
-maximum_height = max_height_of_balanced_tree(maximum_number_of_nodes, maximum_branching_factor)
-# Set the desired level of accuracy for tests to pass
-target_tolerance = 0.01  # 0.01 = 1 %
-
-
 # Explore random networks
 @given(
-    N=st.integers(min_value=2, max_value=maximum_number_of_nodes),
-    min_area=st.floats(min_value=minimum_area, max_value=maximum_area),
-    max_area=st.floats(min_value=minimum_area, max_value=maximum_area),
-    min_conc=st.floats(min_value=minimum_conc, max_value=maximum_conc),
-    max_conc=st.floats(min_value=minimum_conc, max_value=maximum_conc),
+    N=st.integers(min_value=2, max_value=MAXIMUM_NUMBER_OF_NODES),
+    min_area=st.floats(min_value=MINIMUM_AREA, max_value=MAXIMUM_AREA),
+    max_area=st.floats(min_value=MINIMUM_AREA, max_value=MAXIMUM_AREA),
+    min_conc=st.floats(min_value=MINIMUM_CONC, max_value=MAXIMUM_CONC),
+    max_conc=st.floats(min_value=MINIMUM_CONC, max_value=MAXIMUM_CONC),
 )
 @settings(deadline=None)
 def test_random_network(
@@ -173,17 +178,17 @@ def test_random_network(
     for node in network.nodes:
         pred = solution.upstream_preds[node]
         true = upstream[node]
-        assert np.isclose(pred, true, rtol=target_tolerance)
+        assert np.isclose(pred, true, rtol=TARGET_TOLERANCE)
 
 
 # Explore balanced networks
 @given(
-    branching_factor=st.integers(min_value=1, max_value=maximum_branching_factor),
-    height=st.integers(min_value=1, max_value=maximum_height),
-    min_area=st.floats(min_value=minimum_area, max_value=maximum_area),
-    max_area=st.floats(min_value=minimum_area, max_value=maximum_area),
-    min_conc=st.floats(min_value=minimum_conc, max_value=maximum_conc),
-    max_conc=st.floats(min_value=minimum_conc, max_value=maximum_conc),
+    branching_factor=st.integers(min_value=1, max_value=MAXIMUM_BRANCHING_FACTOR),
+    height=st.integers(min_value=1, max_value=MAXIMUM_HEIGHT),
+    min_area=st.floats(min_value=MINIMUM_AREA, max_value=MAXIMUM_AREA),
+    max_area=st.floats(min_value=MINIMUM_AREA, max_value=MAXIMUM_AREA),
+    min_conc=st.floats(min_value=MINIMUM_CONC, max_value=MAXIMUM_CONC),
+    max_conc=st.floats(min_value=MINIMUM_CONC, max_value=MAXIMUM_CONC),
 )
 @settings(deadline=None)
 def test_balanced_network(
@@ -218,17 +223,17 @@ def test_balanced_network(
     for node in network.nodes:
         pred = solution.upstream_preds[node]
         true = upstream[node]
-        assert np.isclose(pred, true, rtol=target_tolerance)
+        assert np.isclose(pred, true, rtol=TARGET_TOLERANCE)
 
 
 # Explore full r-ary networks
 @given(
-    branching_factor=st.integers(min_value=1, max_value=maximum_branching_factor),
-    N=st.integers(min_value=2, max_value=maximum_number_of_nodes),
-    min_area=st.floats(min_value=minimum_area, max_value=maximum_area),
-    max_area=st.floats(min_value=minimum_area, max_value=maximum_area),
-    min_conc=st.floats(min_value=minimum_conc, max_value=maximum_conc),
-    max_conc=st.floats(min_value=minimum_conc, max_value=maximum_conc),
+    branching_factor=st.integers(min_value=1, max_value=MAXIMUM_BRANCHING_FACTOR),
+    N=st.integers(min_value=2, max_value=MAXIMUM_NUMBER_OF_NODES),
+    min_area=st.floats(min_value=MINIMUM_AREA, max_value=MAXIMUM_AREA),
+    max_area=st.floats(min_value=MINIMUM_AREA, max_value=MAXIMUM_AREA),
+    min_conc=st.floats(min_value=MINIMUM_CONC, max_value=MAXIMUM_CONC),
+    max_conc=st.floats(min_value=MINIMUM_CONC, max_value=MAXIMUM_CONC),
 )
 @settings(deadline=None)
 def test_rary_network(
@@ -261,4 +266,4 @@ def test_rary_network(
     for node in network.nodes:
         pred = solution.upstream_preds[node]
         true = upstream[node]
-        assert np.isclose(pred, true, rtol=target_tolerance)
+        assert np.isclose(pred, true, rtol=TARGET_TOLERANCE)
