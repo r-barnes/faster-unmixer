@@ -7,6 +7,8 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import (
     Any,
+    cast,
+    DefaultDict,
     Dict,
     Final,
     Iterator,
@@ -15,7 +17,6 @@ from typing import (
     Tuple,
     TypeVar,
     Union,
-    DefaultDict,
 )
 
 # TODO(rbarnes): Make a requirements file for conda
@@ -66,11 +67,11 @@ class SampleNode:
     # Properties added dynamically by Python
     label: int
     my_flux: Optional[Union[float, cp.Expression]] = None
-    my_total_flux: Optional[cp.Expression] = None
-    my_total_tracer_flux: Optional[cp.Expression] = None
+    my_total_flux: Union[float, cp.Expression] = 0.0
+    my_total_tracer_flux: Union[float, cp.Expression] = 0.0
     my_tracer_flux: Optional[cp.Expression] = None
     my_tracer_value: Optional[cp.Expression] = None
-    rltv_area: Optional[float] = None
+    rltv_area: float = -np.inf  # Obviously bad value
     total_flux: Optional[cp.Expression] = None
     my_export_rate: cp.Parameter = field(default_factory=lambda: cp.Parameter(pos=True))
 
@@ -86,6 +87,22 @@ class SampleNode:
             total_upstream_area=n.total_upstream_area,
             label=n.label,
         )
+
+
+@dataclass(frozen=True)
+class DownstreamNode:
+    node: str
+    data: SampleNode
+
+
+def nx_items(sample_network: nx.DiGraph) -> Iterator[Tuple[str, SampleNode]]:
+    for node, data in sample_network.nodes(data=True):
+        yield node, data["data"]
+
+
+def nx_values(sample_network: nx.DiGraph) -> Iterator[SampleNode]:
+    for data in sample_network.nodes.values():
+        yield data["data"]
 
 
 def native_sample_graph_to_python(g: Dict[str, fn.NativeSampleNode]) -> Dict[str, SampleNode]:
@@ -165,11 +182,13 @@ def nx_topological_sort_with_data(
     Returns:
         An iterator yielding tuples of node name and node data.
     """
-    # pyre-fixme[16]: `None` has no attribute `__iter__`.
-    return ((x, G.nodes[x]["data"]) for x in nx.topological_sort(G))
+    return (
+        (x, cast(SampleNode, G.nodes[x]["data"]))
+        for x in cast(Iterator[str], nx.topological_sort(G))
+    )
 
 
-def nx_get_downstream(G: nx.DiGraph, x: str) -> Optional[str]:
+def nx_get_downstream(G: nx.DiGraph, x: str) -> Optional[DownstreamNode]:
     """
     Gets the downstream child from a node with only one child.
 
@@ -187,7 +206,7 @@ def nx_get_downstream(G: nx.DiGraph, x: str) -> Optional[str]:
     if len(s) == 0:
         return None
     elif len(s) == 1:
-        return s[0]
+        return DownstreamNode(s[0], cast(SampleNode, G.nodes[s[0]]["data"]))
     else:
         raise Exception("More than one downstream neighbour!")
 
@@ -307,19 +326,19 @@ class SampleNetworkUnmixer:
             to each node in the graph based on its individual upstream area divided by the mean area. This step improves numerical accuracy
             and does not affect the results as all values are divided by a constant.
         """
-        areas = [node["data"].area for node in sample_network.nodes.values()]
-        mean_area = np.mean(areas)
+        areas = [node.area for node in nx_values(sample_network)]
+        mean_area = float(np.mean(np.array(areas)))
 
-        for node in sample_network.nodes.values():
-            node["data"].rltv_area = node["data"].area / mean_area
+        for node in nx_values(sample_network):
+            node.rltv_area = node.area / mean_area
 
     def _build_primary_terms(self) -> None:
         """
         Build the primary terms for the objective function.
         """
-        for _, data in self.sample_network.nodes(data=True):
-            data["data"].my_total_flux = 0.0
-            data["data"].my_total_tracer_flux = 0.0
+        for data in nx_values(self.sample_network):
+            data.my_total_flux = 0.0
+            data.my_total_tracer_flux = 0.0
 
         # Normalises node area by total mean to improve numerical accuracy
         self._calculate_normalised_areas(sample_network=self.sample_network)
@@ -336,11 +355,9 @@ class SampleNetworkUnmixer:
             self._site_to_export_rate[my_data.name] = my_data.my_export_rate
 
             # Area weighted total contribution of material from this node
-            my_data.my_flux = my_data.my_export_rate * not_none(my_data.rltv_area)
-            assert isinstance(my_data.my_flux, cp.Expression)
+            my_data.my_flux = my_data.my_export_rate * my_data.rltv_area
 
             # Add the flux I generate to the total flux passing through me
-            assert my_data.my_total_flux is not None
             my_data.my_total_flux += my_data.my_flux
             # Set up a ReciprocalParameter for total flux to make problem DPP.
             # Value of this parameter is set at solve time as it
@@ -351,14 +368,12 @@ class SampleNetworkUnmixer:
             # Area weighted contribution of *tracer* from this node
             my_data.my_tracer_flux = my_data.my_flux * my_data.my_tracer_value
             # Add the *tracer* flux I generate to the total flux of *tracer* passing through me
-            assert my_data.my_total_tracer_flux is not None
             my_data.my_total_tracer_flux += my_data.my_tracer_flux
 
             # Set up a dummy (parameter free) variable that encodes the total *tracer* flux at the node.
             # This ensures that the problem is DPP.
             total_tracer_flux_dummy = cp.Variable(pos=True)
             # We add a constraint that this must equal the parameter encoded `total_tracer_flux`
-            assert my_data.my_total_tracer_flux is not None
             self._constraints.append(total_tracer_flux_dummy == my_data.my_total_tracer_flux)
 
             # Set up a dummy (parameter free) variable for normalised concentration.
@@ -378,19 +393,18 @@ class SampleNetworkUnmixer:
             self._primary_terms.append(misfit)
 
             if (ds := nx_get_downstream(self.sample_network, sample_name)) is not None:
-                downstream_data = self.sample_network.nodes[ds]["data"]
                 # Add our flux to downstream node's
-                downstream_data.my_total_flux += my_data.my_total_flux
+                ds.data.my_total_flux += my_data.my_total_flux
                 # Add our *tracer* flux to the downstream node's
-                downstream_data.my_total_tracer_flux += my_data.my_total_tracer_flux
+                ds.data.my_total_tracer_flux += my_data.my_total_tracer_flux
 
     def _build_regularizer_terms(self) -> None:
         """
         Build the regularizer terms.
         """
         # Build regularizer
-        for _, data in self.sample_network.nodes(data=True):
-            concen = data["data"].my_tracer_value
+        for data in nx_values(self.sample_network):
+            concen = data.my_tracer_value
             # Data is divided by the mean as part of .solve method, thus the mean value is simply 1.
             # To calculate (convex) relative differences of observation x from the mean we thus
             # calculate max(x/1,1/x) = max(x,1/x)
@@ -466,9 +480,8 @@ class SampleNetworkUnmixer:
         for x in self._site_to_total_flux.values():
             x.value = None
 
-        for site, data in self.sample_network.nodes(data=True):
-            assert site in self._site_to_total_flux
-            self._site_to_total_flux[site].value = data["data"].my_total_flux.value
+        for site, data in nx_items(self.sample_network):
+            self._site_to_total_flux[site].value = data.my_total_flux.value
 
         for x in self._site_to_total_flux.values():
             assert x.value is not None
@@ -632,9 +645,10 @@ class SampleNetworkUnmixer:
             prediction for that sample site.
         """
         predictions: ElementData = {}
-        for sample_name, data in self.sample_network.nodes(data=True):
-            data = data["data"]
-            predictions[sample_name] = data.my_total_tracer_flux.value / data.my_total_flux.value
+        for sample_name, data in nx_items(self.sample_network):
+            predictions[sample_name] = cast(
+                float, data.my_total_tracer_flux.value / data.my_total_flux.value
+            )
         return predictions
 
     def get_upstream_prediction_dictionary(self) -> ElementData:
@@ -651,8 +665,7 @@ class SampleNetworkUnmixer:
         """
         # Get the predicted upstream concentration we found
         predictions: ElementData = {}
-        for sample_name, data in self.sample_network.nodes(data=True):
-            data = data["data"]
+        for sample_name, data in nx_items(self.sample_network):
             predictions[sample_name] = data.my_tracer_value.value
         return predictions
 
@@ -679,6 +692,7 @@ class SampleNetworkUnmixer:
             float: The roughness value.
         """
         return cp.norm(cp.vstack(self._regularizer_terms)).value
+
 
 def get_element_obs(element: str, obs_data: pd.DataFrame) -> ElementData:
     """
@@ -716,14 +730,13 @@ def forward_model(
     """
     mixed_downstream_pred: ElementData = {}
 
-    for _, data in sample_network.nodes(data=True):
-        data["data"].my_total_tracer_flux = 0.0
-        data["data"].my_total_flux = 0.0
+    for data in nx_values(sample_network):
+        data.my_total_tracer_flux = 0.0
+        data.my_total_flux = 0.0
 
     for sample_name, my_data in nx_topological_sort_with_data(sample_network):
         # If provided, set export rates from user input
         # else default to equal rate (absolute value is arbitrary)
-
         my_data.my_export_rate = export_rates[sample_name] if export_rates else 1.0
 
         my_data.my_tracer_value = upstream_concentrations[sample_name]
@@ -739,19 +752,18 @@ def forward_model(
         normalised = my_data.my_total_tracer_flux / my_data.my_total_flux
         mixed_downstream_pred[sample_name] = normalised
         if (ds := nx_get_downstream(sample_network, sample_name)) is not None:
-            downstream_data = sample_network.nodes[ds]["data"]
             # Add our flux to downstream node's
-            downstream_data.my_total_flux += my_data.my_total_flux
+            ds.data.my_total_flux += my_data.my_total_flux
             # Add our *tracer* flux to the downstream node's
-            downstream_data.my_total_tracer_flux += my_data.my_total_tracer_flux
+            ds.data.my_total_tracer_flux += my_data.my_total_tracer_flux
 
     return mixed_downstream_pred
 
 
 def mix_downstream(
     sample_network: nx.DiGraph,
-    areas: Dict[str, np.ndarray],
-    concentration_map: np.ndarray,
+    areas: Dict[str, npt.NDArray[np.float_]],
+    concentration_map: npt.NDArray[np.float_],
     export_rates: Optional[ExportRateData] = None,
 ) -> Tuple[ElementData, ElementData]:
     """Mixes a given concentration map along drainage, predicting the downstream concentration at sample sites
@@ -767,7 +779,7 @@ def mix_downstream(
     """
     # Calculate average concentration in each area:
     mixed_upstream_pred = {
-        sample_name: np.mean(concentration_map[area]) for sample_name, area in areas.items()
+        sample_name: float(np.mean(concentration_map[area])) for sample_name, area in areas.items()
     }
     # Predict downstream concentration at each sample site
     mixed_downstream_pred = forward_model(sample_network, mixed_upstream_pred, export_rates)
@@ -801,7 +813,7 @@ def get_unique_upstream_areas(
         mask.
     """
     I = plt.imread("labels.tif")[:, :, 0]
-    return {node: I == data["data"].label for node, data in sample_network.nodes(data=True)}
+    return {node: I == data.label for node, data in nx_items(sample_network)}
 
 
 def plot_sweep_of_regularizer_strength(
@@ -908,6 +920,7 @@ def visualise_downstream(pred_dict: ElementData, obs_dict: ElementData, element:
     obs = []
     pred = []
     for sample in obs_dict:
+        # NOTE: Dicts have different orders, so we can't use a comprehension
         obs.append(obs_dict[sample])
         pred.append(pred_dict[sample])
     obs = np.array(obs)

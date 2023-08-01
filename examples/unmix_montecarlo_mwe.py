@@ -61,17 +61,13 @@ def main() -> None:
 
     downstream_means, downstream_uncertainties = {}, {}
     for sample, values in element_pred_down_mc.items():
-        # pyre-fixme[6]: For 1st argument expected `Union[_SupportsArray[dtype[Union[comp...
-        downstream_uncertainties[sample] = np.std(values)
-        # pyre-fixme[6]: For 1st argument expected `Union[_SupportsArray[dtype[Union[floa...
-        downstream_means[sample] = np.mean(values)
+        downstream_uncertainties[sample] = np.std(np.array(values))
+        downstream_means[sample] = np.mean(np.array(values))
 
     upstream_means, upstream_uncertainties = {}, {}
-    # pyre-fixme[16]: Item `List` of `Union[Dict[str, typing.List[float]],
-    #  List[np.ndarray[typing.Any, typing.Any]]]` has no attribute `items`.
     for sample, values in element_pred_up_mc.items():
-        upstream_uncertainties[sample] = np.std(values)
-        upstream_means[sample] = np.mean(values)
+        upstream_uncertainties[sample] = np.std(np.array(values))
+        upstream_means[sample] = np.mean(np.array(values))
 
     area_dict = funmixer.get_unique_upstream_areas(sample_network)  # Extract areas for each basin
     upstream_map = funmixer.get_upstream_concentration_map(

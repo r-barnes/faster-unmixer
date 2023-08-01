@@ -1,3 +1,5 @@
+# pyre-ignore-all-errors[56]
+
 import math
 from typing import Callable, Optional
 
@@ -57,7 +59,7 @@ def generate_random_sample_network(
         G.nodes[node]["data"] = funmixer.SampleNode(
             name=node,
             area=areas(),
-            downstream_node=funmixer.nx_get_downstream(G, node),
+            downstream_node=n.node if (n := funmixer.nx_get_downstream(G, node)) else None,
             x=-1,
             y=-1,
             total_upstream_area=0,
@@ -83,7 +85,7 @@ def generate_balanced_sample_network(
         G.nodes[node]["data"] = funmixer.SampleNode(
             name=node,
             area=areas(),
-            downstream_node=funmixer.nx_get_downstream(G, node),
+            downstream_node=n.node if (n := funmixer.nx_get_downstream(G, node)) else None,
             x=-1,
             y=-1,
             total_upstream_area=0,
@@ -110,7 +112,7 @@ def generate_r_ary_sample_network(
         G.nodes[node]["data"] = funmixer.SampleNode(
             name=node,
             area=areas(),
-            downstream_node=funmixer.nx_get_downstream(G, node),
+            downstream_node=n.node if (n := funmixer.nx_get_downstream(G, node)) else None,
             x=-1,
             y=-1,
             total_upstream_area=0,
