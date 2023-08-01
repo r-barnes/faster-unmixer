@@ -3,9 +3,12 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import DefaultDict, List, Optional, Tuple, TypeVar
 
+# pyre-fixme[21]: Could not find module `matplotlib.pyplot`.
 import matplotlib.pyplot as plt
 import numpy as np
 import tqdm
+
+# pyre-fixme[21]: Could not find module `random_networks_test`.
 from random_networks_test import (
     conc_list_to_dict,
     draw_random_log_uniform,
@@ -46,11 +49,11 @@ class BenchmarkResults:
 
 
 def bavg(x: DefaultDict[int, List[float]]) -> List[float]:
-    return [float(np.mean(x[n])) for n in sorted(x.keys())]
+    return [float(np.mean(np.array(x[n]))) for n in sorted(x.keys())]
 
 
 def bstd(x: DefaultDict[int, List[float]]) -> List[float]:
-    return [float(np.std(x[n])) for n in sorted(x.keys())]
+    return [float(np.std(np.array(x[n]))) for n in sorted(x.keys())]
 
 
 def plot_first_second(
@@ -134,18 +137,18 @@ def run_benchmark(solver: str, sizes: List[int], repeats: int = 10) -> Benchmark
 
 def main() -> None:
     # Generate list of network sizes
-    network_sizes = np.unique(
+    network_sizes: List[int] = np.unique(
         np.rint(
             np.logspace(np.log10(2), np.log10(MAXIMUM_NETWORK_SIZE), NUMBER_OF_NETWORKS)
         ).astype(int)
-    )
+    ).tolist()
 
     # NOTE: Select a slice here for doing dev work on the benchmarks
     network_sizes = network_sizes[:]
 
     print("#" * 80)
     print(
-        f"Running benchmark for {network_sizes.size} R-ary networks with branching factor {BRANCHING_FACTOR}, up to {MAXIMUM_NETWORK_SIZE} nodes."
+        f"Running benchmark for {len(network_sizes)} R-ary networks with branching factor {BRANCHING_FACTOR}, up to {MAXIMUM_NETWORK_SIZE} nodes."
     )
     print(
         f"Node concentrations and areas randomly varied between: {MINIMUM_CONC} and {MAXIMUM_CONC}, {MINIMUM_AREA} and {MAXIMUM_AREA}, respectively."

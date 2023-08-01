@@ -669,9 +669,9 @@ class SampleNetworkUnmixer:
         predictions: ElementData = {}
         for sample_name, data in nx_items(self.sample_network):
             predictions[sample_name] = cast(
+                float,
                 # pyre-fixme[16]: Item `float` of `Union[Expression, float]` has no
                 #  attribute `value`.
-                float,
                 data.my_total_tracer_flux.value / data.my_total_flux.value,
             )
         return predictions
