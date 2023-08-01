@@ -5,7 +5,18 @@ import tempfile
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Dict, Final, Iterator, List, Optional, Tuple, TypeVar, Union, DefaultDict
+from typing import (
+    Any,
+    Dict,
+    Final,
+    Iterator,
+    List,
+    Optional,
+    Tuple,
+    TypeVar,
+    Union,
+    DefaultDict,
+)
 
 # TODO(rbarnes): Make a requirements file for conda
 import cvxpy as cp
@@ -41,6 +52,10 @@ def not_none(x: Optional[T]) -> T:
 
 @dataclass
 class SampleNode:
+    """
+    A class to represent a sample node in a Sample Network.
+    """
+
     name: str
     x: int
     y: int
@@ -74,6 +89,9 @@ class SampleNode:
 
 
 def native_sample_graph_to_python(g: Dict[str, fn.NativeSampleNode]) -> Dict[str, SampleNode]:
+    """
+    Convert a graph of native SampleNodes to a graph of Python SampleNodes.
+    """
     newg: Dict[str, SampleNode] = {}
     for k, v in g.items():
         newg[k] = SampleNode.from_native(v)
@@ -107,6 +125,10 @@ logger: logging.Logger = logging.getLogger()
 
 @dataclass
 class FunmixerSolution:
+    """
+    A class to hold the results of a SampleNetworkUnmixer run.
+    """
+
     objective_value: float
     solver_name: str
     total_time: float
@@ -121,10 +143,10 @@ def geo_mean(x: List[float]) -> float:
     Returns the geometric mean of a list of numbers.
 
     Args:
-        x (List[float]): The list of numbers.
+        x: The list of numbers.
 
     Returns:
-        float: The geometric mean of the numbers in the list.
+        The geometric mean of the numbers in the list.
     """
     # pyre-fixme[6]: For 1st argument expected `Union[bytes, complex, float, int,
     #  generic, str]` but got `List[float]`.
@@ -138,10 +160,10 @@ def nx_topological_sort_with_data(
     Returns a topological sort of the graph, with the data of each node.
 
     Args:
-        G (nx.DiGraph): The graph.
+        G: The graph.
 
     Returns:
-        Iterator[Tuple[str, fn.SampleNode]]: An iterator yielding tuples of node name and node data.
+        An iterator yielding tuples of node name and node data.
     """
     # pyre-fixme[16]: `None` has no attribute `__iter__`.
     return ((x, G.nodes[x]["data"]) for x in nx.topological_sort(G))
@@ -152,11 +174,11 @@ def nx_get_downstream(G: nx.DiGraph, x: str) -> Optional[str]:
     Gets the downstream child from a node with only one child.
 
     Args:
-        G (nx.DiGraph): The graph.
-        x (str): The node.
+        G: The graph.
+        x: The node.
 
     Returns:
-        Optional[str]: The downstream child node name, or None if there is no downstream child or multiple downstream children.
+        The downstream child node name, or None if there is no downstream child or multiple downstream children.
 
     Raises:
         Exception: If there is more than one downstream neighbor.
@@ -175,7 +197,7 @@ def plot_network(G: nx.DiGraph) -> None:
     Plots a networkx graph using graphviz.
 
     Args:
-        G (nx.DiGraph): The graph to plot.
+        G: The graph to plot.
     """
     ag = nx.nx_agraph.to_agraph(G)
     ag.layout(prog="dot")
@@ -229,12 +251,12 @@ class SampleNetworkUnmixer:
     to recover the upstream source concentrations.
 
     Attributes:
-        sample_network (nx.DiGraph): The sample network.
-        use_regularization (bool): Flag indicating whether to use regularization to solve.
-        continuous (bool): Flag indicating whether to solve `continuously' or discretely by each sub-basin.
-        area_labels (Optional[np.array]): The mapping of pixels to area labels.
-        nx (Optional[int]): The number of x nodes in the inversion grid.
-        ny (Optional[int]): The number of x nodes in the inversion grid.
+        sample_network: The sample network.
+        use_regularization: Flag indicating whether to use regularization to solve.
+        continuous: Flag indicating whether to solve `continuously' or discretely by each sub-basin.
+        area_labels: The mapping of pixels to area labels.
+        nx: The number of x nodes in the inversion grid.
+        ny: The number of x nodes in the inversion grid.
 
     Methods:
         __init__:
@@ -264,12 +286,12 @@ class SampleNetworkUnmixer:
         Initialize the SampleNetworkUnmixer class.
 
         Args:
-            sample_network (nx.DiGraph): The sample network.
-            use_regularization (bool): Flag indicating whether to use regularization.
-            continuous (bool): Flag indicating whether the network is continuous.
-            area_labels (Optional[np.array]): The area labels. (Only if continuous is True)
-            nx (Optional[int]): The value of nx. (Only if continuous is True)
-            ny (Optional[int]): The value of ny. (Only if continuous is True)
+            sample_network: The sample network.
+            use_regularization: Flag indicating whether to use regularization.
+            continuous: Flag indicating whether the network is continuous.
+            area_labels: The area labels. (Only if continuous is True)
+            nx: The value of nx. (Only if continuous is True)
+            ny: The value of ny. (Only if continuous is True)
         """
 
         self.sample_network = sample_network
@@ -302,7 +324,7 @@ class SampleNetworkUnmixer:
         of all nodes in the network.
 
         Args:
-            sample_network (nx.DiGraph): The sample network graph.
+            sample_network: The sample network graph.
 
         Note:
             The method calculates the mean upstream area of all nodes in the network and assigns a normalized relative area (`rltv_area`)
@@ -472,7 +494,7 @@ class SampleNetworkUnmixer:
         Reset and set the export rate parameters according to input export rates.
 
         Args:
-            export_rate_data (ElementData): The export rate data.
+            export_rate_data: The export rate data.
         """
         # Reset all sites' export rates
         for x in self._site_to_export_rate.values():
@@ -617,14 +639,13 @@ class SampleNetworkUnmixer:
         in the downstream and upstream predictions.
 
         Args:
-            observation_data (ElementData): The observed data for each element.
-            relative_error (float): The *relative* error as a percentage to use for resampling the observation data.
-            num_repeats (int): The number of times to repeat the Monte Carlo simulation.
-            regularization_strength (Optional[float]): The strength of the regularization term (default: None).
-            solver (str): The solver to use for solving the optimization problem (default: "gurobi").
+            observation_data: The observed data for each element.
+            relative_error: The *relative* error as a percentage to use for resampling the observation data.
+            num_repeats: The number of times to repeat the Monte Carlo simulation.
+            regularization_strength: The strength of the regularization term (default: None).
+            solver: The solver to use for solving the optimization problem (default: "gurobi").
 
         Returns:
-            Tuple[Dict[str, List[float]], List[np.ndarray]] or Tuple[Dict[str, List[float]], Dict[str, List[float]]]:
                 A tuple containing the Monte Carlo simulation results.
                 - If solving continuously, the downstream predictions are returned as a dictionary, `predictions_down_mc`,
                 where each key represents a sample name, and the corresponding value is a list of downstream predictions
@@ -704,7 +725,7 @@ class SampleNetworkUnmixer:
         predictions for each sample site.
 
         Returns:
-            ElementData: A dictionary where each key is a sample name, and the corresponding value is the upstream
+            A dictionary where each key is a sample name, and the corresponding value is the upstream
             prediction for that sample site.
 
         Raises:
@@ -836,10 +857,10 @@ class InverseGrid:
         Initialize an InverseGrid object.
 
         Args:
-            nx (int): Number of columns in the grid.
-            ny (int): Number of rows in the grid.
-            area_labels (np.array): 2D array which matches upstream areas to labels.
-            sample_network (nx.DiGraph): Network of sample sites along the drainage, with associated data.
+            nx Number of columns in the grid.
+            ny: Number of rows in the grid.
+            area_labels: 2D array which matches upstream areas to labels.
+            sample_network: Network of sample sites along the drainage, with associated data.
 
         Raises:
             Exception: If nx or ny is not strictly positive.
@@ -905,8 +926,8 @@ def get_element_obs(element: str, obs_data: pd.DataFrame) -> ElementData:
     Extracts observed element data from a pandas DataFrame.
 
     Args:
-        element (str): The name of the element for which the data is to be extracted.
-        obs_data (pd.DataFrame): The pandas DataFrame containing the observed element data.
+        element: The name of the element for which the data is to be extracted.
+        obs_data: The pandas DataFrame containing the observed element data.
 
     Returns:
         ElementData: A dictionary containing the observed element data, where the keys are sample names and the values
@@ -1001,7 +1022,7 @@ def get_unique_upstream_areas(
     Generates a dictionary mapping sample numbers to unique upstream areas as boolean masks.
 
     Args:
-        sample_network (nx.DiGraph): The network of sample sites along the drainage, with associated data.
+        sample_network: The network of sample sites along the drainage, with associated data.
 
     Returns:
         A dictionary where the keys are sample numbers and the values are boolean masks
