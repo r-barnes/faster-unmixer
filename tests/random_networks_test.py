@@ -1,12 +1,11 @@
-from typing import Callable, Optional
 import math
+from typing import Callable, Optional
 
+import funmixer
 import networkx as nx
 import numpy as np
 from hypothesis import given, settings
 from hypothesis import strategies as st
-
-import funmixer
 
 
 def draw_random_log_uniform(min_val: float, max_val: float) -> float:
@@ -122,20 +121,23 @@ def generate_r_ary_sample_network(
     return G
 
 
-### Test parameters ###
-# Set the range to explore concentration values over
+### Set the test parameters ###
+
+# Set the range to explore upstream concentration values over
 minimum_conc, maximum_conc = 1, 1e2
-# Set the range to explore area values over
+# Set the range to explore sub-basin area values over
 minimum_area, maximum_area = 1, 1e2
 # Maximum number of nodes in a random network
 maximum_number_of_nodes = 100
 # Maximum branching factor of a random network
 maximum_branching_factor = 4
-# Set the target relative tolerance for all values in the concentration vectors
+# Maximum possible height of a balanced tree with given network parameters
 maximum_height = max_height_of_balanced_tree(maximum_number_of_nodes, maximum_branching_factor)
+# Set the desired level of accuracy for tests to pass
 target_tolerance = 0.01  # 0.01 = 1 %
 
 
+# Explore random networks
 @given(
     N=st.integers(min_value=2, max_value=maximum_number_of_nodes),
     min_area=st.floats(min_value=minimum_area, max_value=maximum_area),
@@ -172,6 +174,7 @@ def test_random_network(
         assert np.isclose(pred, true, rtol=target_tolerance)
 
 
+# Explore balanced networks
 @given(
     branching_factor=st.integers(min_value=1, max_value=maximum_branching_factor),
     height=st.integers(min_value=1, max_value=maximum_height),
@@ -216,6 +219,7 @@ def test_balanced_network(
         assert np.isclose(pred, true, rtol=target_tolerance)
 
 
+# Explore full r-ary networks
 @given(
     branching_factor=st.integers(min_value=1, max_value=maximum_branching_factor),
     N=st.integers(min_value=2, max_value=maximum_number_of_nodes),
