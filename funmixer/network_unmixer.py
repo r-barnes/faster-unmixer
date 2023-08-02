@@ -578,17 +578,21 @@ class SampleNetworkUnmixer:
         upstream_preds = self.get_upstream_prediction_dictionary()
         upstream_preds = {sample: value * obs_mean for sample, value in upstream_preds.items()}
 
+        return_solvetime = problem.solver_stats.solve_time
+        if problem.solver_stats.solver_name == "SCS":
+            return_solvetime *= 1e-3  # convert to seconds
+
         logger.info(f"Objective value = {objective_value}")
         logger.info(f"Total time = {end_solve_time - start_solve_time}")
         logger.info(f"Solver name = {problem.solver_stats.solver_name}")
-        logger.info(f"Solve time = {problem.solver_stats.solve_time}")
+        logger.info(f"Solve time = {return_solvetime}")
         logger.info(f"Setup time = {problem.solver_stats.setup_time}")
 
         return FunmixerSolution(
             objective_value=float(objective_value),
             solver_name=problem.solver_stats.solver_name,
             setup_time=problem.solver_stats.setup_time,
-            solve_time=problem.solver_stats.solve_time,
+            solve_time=return_solvetime,
             total_time=end_solve_time - start_solve_time,
             upstream_preds=upstream_preds,
             downstream_preds=downstream_preds,
