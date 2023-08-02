@@ -32,19 +32,37 @@ This command installs the `funmixer` python package that can be imported as norm
 
 A conda environment file (`requirements.yaml`) is provided containing the python dependencies. A conda environment entitled `funmixer` can be generated from it using `conda env create -f requirements.yaml`.    
 
-### Testing compilation
+## Testing
 
-To check if installation has happened correctly run the synthetic test script:
+To check if installation has happened correctly you can run the synthetic test script:
 
 ```
 python3 tests/synthetic_test.py
 ```
 
+This script generates a synthetic dataset and recovers the original input. The results are then plotted.
+
+### Unit-tests
+
+Formal unit-tests can be run using:
+
+```
+pytest tests/random_networks_test.py
+```
+ These tests randomly generate sample networks (of three types: random trees, full R-ary trees, and balanced trees) up to 100 nodes in size, with random source concentrations and sub-basin areas drawn from distributions spanning two orders of magnitude. The tests pass if all the inputted upstream source chemistry is recovered to a relative accuracy of 1%.
+
+### Runtime Benchmark
+
+A timing benchmark can be run using:
+
+```
+python tests/runtime_benchmark.py
+```
+This script benchmarks the runtime of the algorithm for the `GUROBI`, `ECOS` and `SCS` solvers for branching networks up to 250 nodes. This takes ~ 10 minutes to run on standard laptop hardware. The results are saved to `runtime_benchmark.png`.
 
 ## Usage
 
 Some documented example scripts are given in the directory `examples/`.
-```
 
 ## Cite 
 
