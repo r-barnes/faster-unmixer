@@ -37,6 +37,9 @@ MAXIMUM_HEIGHT: int = max_height_of_balanced_tree(MAXIMUM_NUMBER_OF_NODES, MAXIM
 # Set the desired level of accuracy for tests to pass
 TARGET_TOLERANCE = 0.01  # 0.01 = 1 %
 
+# Set the solvers to try
+SOLVERS = ["ecos", "gurobi"]
+
 
 def draw_random_log_uniform(min_val: float, max_val: float) -> float:
     """
@@ -152,10 +155,11 @@ def generate_r_ary_sample_network(
     max_area=st.floats(min_value=MINIMUM_AREA, max_value=MAXIMUM_AREA),
     min_conc=st.floats(min_value=MINIMUM_CONC, max_value=MAXIMUM_CONC),
     max_conc=st.floats(min_value=MINIMUM_CONC, max_value=MAXIMUM_CONC),
+    solver=st.sampled_from(SOLVERS),
 )
 @settings(deadline=None)
 def test_random_network(
-    N: int, min_area: float, max_area: float, min_conc: float, max_conc: float
+    N: int, min_area: float, max_area: float, min_conc: float, max_conc: float, solver: str
 ) -> None:
     """
     Test that the SampleNetworkUnmixer can recover the upstream concentrations of a random sample network to tolerance.
@@ -190,6 +194,7 @@ def test_random_network(
     max_area=st.floats(min_value=MINIMUM_AREA, max_value=MAXIMUM_AREA),
     min_conc=st.floats(min_value=MINIMUM_CONC, max_value=MAXIMUM_CONC),
     max_conc=st.floats(min_value=MINIMUM_CONC, max_value=MAXIMUM_CONC),
+    solver=st.sampled_from(SOLVERS),
 )
 @settings(deadline=None)
 def test_balanced_network(
@@ -199,6 +204,7 @@ def test_balanced_network(
     max_area: float,
     min_conc: float,
     max_conc: float,
+    solver: str,
 ) -> None:
     """
     Test that the SampleNetworkUnmixer can recover the upstream concentrations of a balanced sample network to tolerance.
@@ -235,6 +241,7 @@ def test_balanced_network(
     max_area=st.floats(min_value=MINIMUM_AREA, max_value=MAXIMUM_AREA),
     min_conc=st.floats(min_value=MINIMUM_CONC, max_value=MAXIMUM_CONC),
     max_conc=st.floats(min_value=MINIMUM_CONC, max_value=MAXIMUM_CONC),
+    solver=st.sampled_from(SOLVERS),
 )
 @settings(deadline=None)
 def test_rary_network(
@@ -244,6 +251,7 @@ def test_rary_network(
     max_area: float,
     min_conc: float,
     max_conc: float,
+    solver: str,
 ) -> None:
     """
     Test that the SampleNetworkUnmixer can recover the upstream concentrations of a full R-ary sample network to tolerance.
@@ -260,7 +268,7 @@ def test_rary_network(
     upstream = conc_list_to_dict(network, concentrations)
     downstream = funmixer.forward_model(sample_network=network, upstream_concentrations=upstream)
     problem = funmixer.SampleNetworkUnmixer(sample_network=network, use_regularization=False)
-    solution = problem.solve(downstream, solver="ecos")
+    solution = problem.solve(downstream, solver=solver)
 
     # Check that the recovered upstream concentrations are within 0.1% of the true upstream concentrations using
     # the np.isclose function
