@@ -19,8 +19,6 @@ import funmixer
 
 T = TypeVar("T")
 
-# 100 networks up to 500 nodes in size takes about 12 minutes to run on my machine
-
 # Set the range to explore upstream concentration values over
 MINIMUM_CONC = 1
 MAXIMUM_CONC = 1e2
@@ -33,10 +31,12 @@ MAXIMUM_AREA = 1e2
 BRANCHING_FACTOR = 3
 
 # Set maximum number of nodes to try
-MAXIMUM_NETWORK_SIZE = 500
+MAXIMUM_NETWORK_SIZE = 250
 
 # Set number of networks to test
-NUMBER_OF_NETWORKS = 100
+NUMBER_OF_NETWORKS = 50
+
+# The above parameter set takes c. 10 minutes to run on standard laptop hardware
 
 
 @dataclass
@@ -71,6 +71,7 @@ def plot_first_second(
         network_sizes,
         bavg(b.first_solves),
         yerr=bstd(b.first_solves),
+        c=c1,
     )
     plt.plot(
         network_sizes,
@@ -81,11 +82,7 @@ def plot_first_second(
         markersize=4,
         label=f"{name} (2$^{{nd}}$ solve)",
     )
-    plt.errorbar(
-        network_sizes,
-        bavg(b.subsequent_solves),
-        yerr=bstd(b.subsequent_solves),
-    )
+    plt.errorbar(network_sizes, bavg(b.subsequent_solves), yerr=bstd(b.subsequent_solves), c=c2)
 
 
 def plot_solver_time(network_sizes: List[int], b: BenchmarkResults, name: str, c: str) -> None:
@@ -100,6 +97,7 @@ def plot_solver_time(network_sizes: List[int], b: BenchmarkResults, name: str, c
     plt.errorbar(
         network_sizes,
         bavg(b.solver_times),
+        c=c,
         yerr=bstd(b.solver_times),
     )
 
@@ -109,7 +107,7 @@ def none_throws(x: Optional[T]) -> T:
     return x
 
 
-def run_benchmark(solver: str, sizes: List[int], repeats: int = 10) -> BenchmarkResults:
+def run_benchmark(solver: str, sizes: List[int], repeats: int = 5) -> BenchmarkResults:
     ret = BenchmarkResults()
 
     for n in tqdm.tqdm(sizes):
