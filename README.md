@@ -56,9 +56,13 @@ pytest tests/random_networks_test.py
 A timing benchmark can be run using:
 
 ```
-python tests/runtime_benchmark.py
+python tests/runtime_benchmark.py run
 ```
-This script benchmarks the runtime of the algorithm for the `GUROBI`, `ECOS` and `SCS` solvers for branching networks up to 250 nodes. This takes ~ 10 minutes to run on standard laptop hardware. The results are saved to `runtime_benchmark.png`.
+This script benchmarks the runtime of the algorithm for the `GUROBI`, `ECOS` and `SCS` solvers for branching networks up to 250 nodes. This takes ~ 10 minutes to run on standard laptop hardware. The results are cached to file and be visualised using: 
+
+```
+python tests/runtime_benchmark.py plot
+```
 
 ## Usage
 
