@@ -17,11 +17,11 @@
 #include <string>
 #include <unordered_map>
 
-using namespace richdem;
+namespace rd = richdem;
 
 namespace fastunmixer {
 
-namespace internal {
+namespace detail {
 
 struct PairHash {
   std::size_t operator()(const std::pair<uint32_t, uint32_t>& sp) const {
@@ -36,10 +36,10 @@ struct SampleData {
   double y = std::numeric_limits<double>::quiet_NaN();
 };
 
-// Each SampleNode correspond to a sample, specified by a name and (x,y)
+// Each NativeSampleNode correspond to a sample, specified by a name and (x,y)
 // location, as well as a portion of the watershed. This portion of the
 // watershed flows into a downstream node and receives flow from upstream nodes
-struct SampleNode {
+struct NativeSampleNode {
   using name_t = std::string;
   // Sample data
   SampleData data;
@@ -53,17 +53,17 @@ struct SampleNode {
   int64_t total_upstream_area = 0;
 
   // Makes a root node
-  static SampleNode make_root_node() {
-    SampleNode temp;
+  static NativeSampleNode make_root_node() {
+    NativeSampleNode temp;
     temp.data.name = root_node_name;
     return temp;
   }
 
-  static SampleNode make_w_downstream_and_sample(
+  static NativeSampleNode make_w_downstream_and_sample(
     const size_t &downstream_node,
     const SampleData &sample_data
   ){
-    SampleNode temp;
+    NativeSampleNode temp;
     temp.downstream_node = downstream_node;
     temp.data = sample_data;
     return temp;
@@ -75,8 +75,8 @@ using NeighborsToBorderLength = std::unordered_map<std::pair<uint32_t, uint32_t>
 }
 
 
-std::vector<internal::SampleData> get_sample_data(const std::string &sample_filename){
-  std::vector<internal::SampleData> sample_data;
+std::vector<detail::SampleData> get_sample_data(const std::string &sample_filename){
+  std::vector<detail::SampleData> sample_data;
 
   {
     std::ifstream fin(sample_filename);
@@ -91,14 +91,14 @@ std::vector<internal::SampleData> get_sample_data(const std::string &sample_file
       double sx;
       double sy;
       ss>>name>>sx>>sy;
-      sample_data.push_back(internal::SampleData{name, sx, sy});
+      sample_data.push_back(detail::SampleData{name, sx, sy});
     }
   }
 
   return sample_data;
 }
 
-void calculate_total_upstream_areas(std::vector<internal::SampleNode> &sample_graph){
+void calculate_total_upstream_areas(std::vector<detail::NativeSampleNode> &sample_graph){
   // Count how many upstream neighbours we're waiting on
   std::vector<size_t> deps(sample_graph.size());
   for(size_t i = 0; i < sample_graph.size(); i++){
@@ -138,14 +138,25 @@ void calculate_total_upstream_areas(std::vector<internal::SampleNode> &sample_gr
   }
 }
 
-std::pair<std::vector<internal::SampleNode>, internal::NeighborsToBorderLength> faster_unmixer_internal(const std::string& flowdirs_filename, const std::string& sample_filename){
+std::pair<std::vector<detail::NativeSampleNode>, detail::NeighborsToBorderLength> faster_unmixer_internal(const std::string& flowdirs_filename, const std::string& sample_filename){
   // Load data
-  Array2D<d8_flowdir_t> arc_flowdirs(flowdirs_filename);
+  rd::Array2D<rd::d8_flowdir_t> arc_flowdirs(flowdirs_filename);
 
   // Convert raw flowdirs to RichDEM flowdirs
-  auto flowdirs = Array2D<d8_flowdir_t>::make_from_template(arc_flowdirs);
-  convert_arc_flowdirs_to_richdem_d8(arc_flowdirs, flowdirs);
+  auto flowdirs = rd::Array2D<rd::d8_flowdir_t>::make_from_template(arc_flowdirs);
+  rd::convert_arc_flowdirs_to_richdem_d8(arc_flowdirs, flowdirs);
   flowdirs.saveGDAL("rd_flowdirs.tif");
+
+  // Check that boundary conditions are correct
+  iterate_2d(flowdirs, [&](const auto x, const auto y){
+    // if x,y is on the boundary and the node is not a sink raise an exception:
+    if(
+      (x==0 || y==0 || x==flowdirs.width()-1 || y==flowdirs.height()-1) &&
+      flowdirs(x,y)!=rd::NO_FLOW
+    ){
+      throw std::runtime_error("Boundary condition violated at (" + std::to_string(x) + ", " + std::to_string(y) + ")! Expected a sink node, but got a flow direction!");
+    }
+  });
 
   // Get geotransform info from raster
   // Extract GDAL origin (upper left) + pixel widths
@@ -156,7 +167,7 @@ std::pair<std::vector<internal::SampleNode>, internal::NeighborsToBorderLength> 
 
   // Get sample locations and put them in a set using flat-indexing for fast
   // look-up
-  std::unordered_map<uint32_t, internal::SampleData> sample_locs;
+  std::unordered_map<uint32_t, detail::SampleData> sample_locs;
   for(const auto &sample: get_sample_data(sample_filename)){
     // Get x, y indices relative to upper left
     const auto x_ul = static_cast<int64_t>(std::round((sample.x-originX)/pixelWidth));
@@ -166,22 +177,22 @@ std::pair<std::vector<internal::SampleNode>, internal::NeighborsToBorderLength> 
   }
 
   // Graph of how the samples are connected together.
-  std::vector<internal::SampleNode> sample_parent_graph;
+  std::vector<detail::NativeSampleNode> sample_parent_graph;
 
   // Identify cells which do not flow to anywhere. These are the start of our
   // region-identifying procedure
-  std::queue<GridCell> q;
+  std::queue<rd::GridCell> q;
   iterate_2d(flowdirs, [&](const auto x, const auto y){
-    if(flowdirs(x,y)==NO_FLOW){
+    if(flowdirs(x,y)==rd::NO_FLOW){
       q.emplace(x,y);
     }
   });
 
   // Indicates that the cell doesn't correspond to any label
   constexpr auto NO_LABEL = 0;
-  auto sample_label = Array2D<uint32_t>::make_from_template(flowdirs, NO_LABEL);
+  auto sample_label = rd::Array2D<uint32_t>::make_from_template(flowdirs, NO_LABEL);
   sample_label.setNoData(NO_LABEL);
-  sample_parent_graph.push_back(internal::SampleNode::make_root_node());
+  sample_parent_graph.push_back(detail::NativeSampleNode::make_root_node());
 
   // Iterate in a wave from all the flow endpoints to the headwaters, labeling
   // cells as we go.
@@ -199,7 +210,7 @@ std::pair<std::vector<internal::SampleNode>, internal::NeighborsToBorderLength> 
       auto& parent = sample_parent_graph.at(my_current_label);
       parent.upstream_nodes.push_back(data.name);
       sample_parent_graph.push_back(
-        internal::SampleNode::make_w_downstream_and_sample(my_current_label, data)
+        detail::NativeSampleNode::make_w_downstream_and_sample(my_current_label, data)
       );
       // Update the sample's label
       sample_label(c.x,c.y) = my_new_label;
@@ -210,13 +221,13 @@ std::pair<std::vector<internal::SampleNode>, internal::NeighborsToBorderLength> 
 
     // Loop over all my neighbours
     for(int n=1;n<=8;n++){
-      const int nx = c.x + d8x[n];
-      const int ny = c.y + d8y[n];
+      const int nx = c.x + rd::d8x[n];
+      const int ny = c.y + rd::d8y[n];
       // If cell flows into me, it gets my label. If the cell happens to have a
       // sample, then this label will be overwritten when the cell is popped
       // from the queue. D8 means that upstream cells are only added to the
       // queue once.
-      if(flowdirs.inGrid(nx,ny) && flowdirs(nx,ny)==d8_inverse[n]){
+      if(flowdirs.inGrid(nx,ny) && flowdirs(nx,ny)==rd::d8_inverse[n]){
         sample_label(nx,ny) = sample_label(c.x,c.y);
         q.emplace(nx,ny);
       }
@@ -243,7 +254,7 @@ std::pair<std::vector<internal::SampleNode>, internal::NeighborsToBorderLength> 
     }
   }
 
-  internal::NeighborsToBorderLength adjacency_graph;
+  detail::NeighborsToBorderLength adjacency_graph;
 
   // Get border lengths between adjacent sample regions
   iterate_2d(sample_label, [&](const auto x, const auto y){
@@ -252,8 +263,8 @@ std::pair<std::vector<internal::SampleNode>, internal::NeighborsToBorderLength> 
       return;
     }
     for(int n=1;n<=8;n++){
-      const int nx = x + d8x[n];
-      const int ny = y + d8y[n];
+      const int nx = x + rd::d8x[n];
+      const int ny = y + rd::d8y[n];
       if(sample_label.inGrid(nx,ny)){
         const auto n_label = sample_label(nx, ny);
         // Less-than comparison creates a preferred ordering to prevent
@@ -297,7 +308,7 @@ std::pair<SampleGraph, NeighborsToBorderLength> faster_unmixer(const std::string
   for(size_t i = 0; i < sample_parent_graph.size(); i++){
     const auto node = sample_parent_graph.at(i);
     const std::string downstream_node_name = (node.downstream_node == NO_DOWNSTREAM_NEIGHBOUR) ? root_node_name : sample_parent_graph.at(node.downstream_node).data.name;
-    nodes[node.data.name] = SampleNode{
+    nodes[node.data.name] = NativeSampleNode{
       .name = node.data.name,
       .x = node.data.x,
       .y = node.data.y,

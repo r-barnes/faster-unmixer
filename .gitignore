@@ -10,3 +10,6 @@ __pycache__/
 build/
 *.so
 cyth_scripts.c
+*.egg-info
+.pyre/
+.hypothesis/

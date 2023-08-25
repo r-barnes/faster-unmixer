@@ -12,10 +12,10 @@ constexpr auto root_node_name = "##ROOT##";
 constexpr auto unset_node_name = "##UNSET##";
 constexpr auto NO_DOWNSTREAM_NEIGHBOUR = std::numeric_limits<size_t>::max();
 
-// Each SampleNode correspond to a sample, specified by a name and (x,y)
+// Each NativeSampleNode correspond to a sample, specified by a name and (x,y)
 // location, as well as a portion of the watershed. This portion of the
 // watershed flows into a downstream node and receives flow from upstream nodes
-struct SampleNode {
+struct NativeSampleNode {
   using name_t = std::string;
   // Sample name
   name_t name;
@@ -34,19 +34,19 @@ struct SampleNode {
   int64_t label = std::numeric_limits<size_t>::max();
 };
 
-using NamePair = std::pair<SampleNode::name_t, SampleNode::name_t>;
+using NamePair = std::pair<NativeSampleNode::name_t, NativeSampleNode::name_t>;
 
 // Used to store graph edges
 struct NamePairHash {
   std::size_t operator()(const NamePair& sp) const {
-    auto a_hash = std::hash<SampleNode::name_t>()(sp.first);
-    auto b_hash = std::hash<SampleNode::name_t>()(sp.second);
+    auto a_hash = std::hash<NativeSampleNode::name_t>()(sp.first);
+    auto b_hash = std::hash<NativeSampleNode::name_t>()(sp.second);
     // Boost hash combine function: https://stackoverflow.com/a/27952689/752843
     return a_hash ^ (b_hash + 0x9e3779b9 + (a_hash << 6) + (a_hash >> 2));
   }
 };
 
-using SampleGraph = std::unordered_map<SampleNode::name_t, SampleNode>;
+using SampleGraph = std::unordered_map<NativeSampleNode::name_t, NativeSampleNode>;
 using NeighborsToBorderLength = std::unordered_map<NamePair, int64_t, NamePairHash>;
 
 std::pair<SampleGraph, NeighborsToBorderLength> faster_unmixer(const std::string& flowdirs_filename, const std::string& sample_filename);

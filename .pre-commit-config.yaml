@@ -6,12 +6,3 @@ repos:
           language: python
           types: [python]
           args: ["--line-length=100"]
-    - repo: https://github.com/PyCQA/isort
-      rev: 5.10.1
-      hooks:
-      - id: isort
-        name: Sorting import statements
-        entry: bash -c 'isort "$@"; git add -u' --
-        language: python
-        args: ["--filter-files"]
-        files: \.py$

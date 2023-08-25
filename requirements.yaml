@@ -1,10 +1,16 @@
-name: unmixing
+name: funmixer
 channels:
-  - defaults
+  - conda-forge
 dependencies:
   - python>=3.8
-  - numpy
-  - pandas
+  - cvxpy
+  - gdal
+  - hypothesis
   - matplotlib
   - networkx
-  - cvxpy
+  - numpy
+  - pandas
+  - pybind11
+  - pygraphviz
+  - pytest
+  - tqdm
