@@ -21,7 +21,7 @@ import funmixer
 
 T = TypeVar("T")
 
-# 100 networks up to 500 nodes in size takes about 12 minutes to run on my machine
+# The following parameter set (50 networks up to 500 nodes in size) takes about 30 minutes to run on standard hardware.
 
 # Set the range to explore upstream concentration values over
 MINIMUM_CONC = 1
@@ -35,13 +35,13 @@ MAXIMUM_AREA = 1e2
 BRANCHING_FACTOR = 3
 
 # Set maximum number of nodes to try
-MAXIMUM_NETWORK_SIZE = 250
+MAXIMUM_NETWORK_SIZE = 500
 
 # Set number of networks to test
-NUMBER_OF_NETWORKS = 100
+NUMBER_OF_NETWORKS = 50
 
 # Number of times to run the test to average run-time variations
-TEST_REPEATS = 1
+TEST_REPEATS = 5
 
 
 @dataclass
