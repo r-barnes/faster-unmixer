@@ -466,7 +466,6 @@ class SampleNetworkUnmixer:
             assert site in self._site_to_observation
             # Normalise observation by mean
             self._site_to_observation[site].value = value / obs_mean
-
         # Ensure that all sites in the problem were assigned
         for x in self._site_to_observation.values():
             assert x.value is not None
@@ -481,7 +480,6 @@ class SampleNetworkUnmixer:
         # Reset all sites' export rates
         for x in self._site_to_export_rate.values():
             x.value = None
-
         # If export_rates provided, assign each one to a site, making sure that the site exists
         if export_rates:
             for site, value in export_rates.items():
