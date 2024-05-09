@@ -4,10 +4,9 @@ from typing import List
 
 import setuptools
 
-try:
-    from pybind11.setup_helpers import Pybind11Extension
-except ImportError:
-    from setuptools import Extension as Pybind11Extension
+from Cython.Build import cythonize
+from setuptools import Extension
+import numpy
 
 __version__ = "0.0.1"
 
@@ -31,27 +30,37 @@ gdal_deplibs: List[str] = get_arg(get_gdal_config("dep-libs"), "-l")
 # NOTE:
 # ImportError: dynamic module does not define module export function (PyInit__funmixer_native)
 # Means that extension.cpp probably has a mismatched name at PYBIND11_MODULE
-ext_modules = [
-    Pybind11Extension(
-        "_funmixer_native",
-        [
-            "funmixer/native/extension.cpp",
-            "funmixer/native/faster-unmixer.cpp",
-        ]
-        + glob("submodules/richdem/src/*.cpp"),
-        include_dirs=[
-            "funmixer/native/",
-            "submodules/richdem/include",
-        ]
-        + gdal_include_dir,
-        library_dirs=gdal_library_dir + gdal_deplibs_dir,
-        libraries=gdal_libs + gdal_deplibs,
-        define_macros=[
-            ("USEGDAL", None),
-        ],
+
+cyth_ext = cythonize(
+    Extension(
+        "funmixer.flow_acc_cfuncs",
+        ["funmixer/flow_acc_cfuncs.pyx"],
         extra_compile_args=["--std=c++20"],
-    ),
-]
+    )
+)[0]
+
+cpp_ext = Extension(
+    "_funmixer_native",
+    [
+        "funmixer/native/extension.cpp",
+        "funmixer/native/faster-unmixer.cpp",
+    ]
+    + glob("submodules/richdem/src/*.cpp"),
+    include_dirs=[
+        "funmixer/native/",
+        "submodules/richdem/include",
+    ]
+    + gdal_include_dir,
+    library_dirs=gdal_library_dir + gdal_deplibs_dir,
+    libraries=gdal_libs + gdal_deplibs,
+    define_macros=[
+        ("USEGDAL", None),
+    ],
+    extra_compile_args=["--std=c++20"],
+)
+
+ext_modules = [cyth_ext, cpp_ext]
+
 
 # TODO: https://packaging.python.org/tutorials/distributing-packages/#configuring-your-project
 setuptools.setup(
@@ -89,8 +98,10 @@ setuptools.setup(
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
     ],
+    include_dirs=[numpy.get_include()],
     install_requires=[
         "cvxpy",
+        "cython",
         # "gdal",
         "hypothesis",
         "imageio",

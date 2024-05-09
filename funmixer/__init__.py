@@ -1,3 +1,5 @@
+from .d8processing import check_d8, set_d8_boundaries_to_zero, snap_to_drainage
+
 from .network_unmixer import (
     ELEMENT_LIST,
     ElementData,

@@ -10,7 +10,7 @@ The algorithm requires:
 
 2) A **space**-delimited file which contains the names, locations and geochemical observations at the sample sites. Sample names are given in column `Sample.Code`, and the x and y-coordinates of the sample sites in columns `x_coordinate` and `y_coordinate`. The x and y-coordinates of the sample sites need to be in the same reference system as the D8 raster. It is assumed that the sample sites have already been manually aligned onto the drainage network. Subsequent columns contain the name of a given tracer (e.g., `Mg`) and their concentrations (arbitrary units).
 
-Example datasets are given in `data/d8.asc` and `sample_data.dat`.
+`funmixer` does include some basic data preprocessing functions that can be used to align the sample sites to the drainage network and fix the boundary conditions of the D8 raster. An example of use is given in the `examples/` directory. Example, valid, datasets are contained in `data/d8.asc` and `sample_data.dat`. 
 
 Some common data input problems can be solved by: 
 - Checking that there is not trailing white-space at the end of the sample site data table. 
