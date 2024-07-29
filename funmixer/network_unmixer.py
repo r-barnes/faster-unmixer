@@ -601,6 +601,7 @@ class SampleNetworkUnmixer:
         observation_data: ElementData,
         relative_error: float,
         num_repeats: int,
+        export_rates: Optional[ExportRateData] = None,
         regularization_strength: Optional[float] = None,
         solver: str = "gurobi",
     ) -> Tuple[DefaultDict[str, List[float]], Dict[str, List[float]]]:
@@ -615,6 +616,7 @@ class SampleNetworkUnmixer:
             observation_data: The observed data for each element.
             relative_error: The *relative* error as a percentage to use for resampling the observation data.
             num_repeats: The number of times to repeat the Monte Carlo simulation.
+            export_rates: The export rates for each element. If not provided these are all set to 1.
             regularization_strength: The strength of the regularization term (default: None).
             solver: The solver to use for solving the optimization problem (default: "gurobi").
 
@@ -647,6 +649,7 @@ class SampleNetworkUnmixer:
                 observation_data=observation_data_resampled,
                 solver=solver,
                 regularization_strength=regularization_strength,
+                export_rates=export_rates,
             )  # Solve problem
             for sample_name, v in solution.downstream_preds.items():
                 predictions_down_mc[sample_name].append(v)
