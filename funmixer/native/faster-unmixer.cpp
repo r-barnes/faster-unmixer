@@ -1,4 +1,5 @@
 #include "faster-unmixer.hpp"
+#include "gdal/gdal_priv.h"
 
 #include <richdem/common/Array2D.hpp>
 #include <richdem/common/grid_cell.hpp>
